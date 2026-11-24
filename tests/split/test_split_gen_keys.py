@@ -18,11 +18,9 @@ ACCEPTED = {"temperature", "top_p", "top_k", "min_p", "penalty_repeat", "penalty
 # (refuse_for_split, logit_bias.validate_request)
 DROPPED = {"pen_from"}
 REFUSED = {"logprobs", "allowed", "logit_bias"}
-# keys only other engines are sent: the prefill-only request of serve/split.py,
-# and hold (the thinking budget's GEN hold=N:ID): the server sends it only to an engine whose READY line says "hold" (a --batch engine: "holdb" too), which is the
-# single-card engine (src/program/generate.cpp prints "READY <ctx> stop hold holdb"); the split engine says "READY <ctx> stop" (sfnx.cpp), so it is never sent it, and
-# the server also refuses it for a split engine by name (Service._run).  Sent to a split engine anyway, parse_gen would end the request with "GEN: unknown key hold".
-OTHER_ENGINES = {"prefill", "hold"}
+# keys only other engines are sent: retained DeepSeek restore-point / multi keys,
+# the prefill-only split request, and hold for engines whose READY advertises hold/holdb.
+OTHER_ENGINES = {"marks", "tail", "shared", "prefill", "rid", "hold"}
 
 
 def server_keys() -> set[str]:
