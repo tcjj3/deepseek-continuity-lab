@@ -1252,7 +1252,7 @@ class StrataEngine:
                 self.can_stop = "stop" in f[2:]
                 self.can_hold = "hold" in f[2:]
                 self.can_hold_batch = "holdb" in f[2:]
-                break
+                self.multi = next((int(x[6:]) for x in f[2:] if x.startswith("multi=") and x[6:].isdigit()), 0)\n                break
         loading.set()
         if self.max_context <= 0:
             if timed_out:                               # still loading, or hung: end it, so the turn is not held for good
