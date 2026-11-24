@@ -61,3 +61,24 @@ self.multi = next((int(x[6:]) for x in f[2:] if x.startswith("multi=") and x[6:]
 Measured DeepSeek-specific compatibility cost: **1 retained line / one conflict hunk**.
 
 No shared execution-contract assumption needs to change, so this event does not satisfy the lab's architecture-break criterion.
+
+
+## Instrumentation correction discovered at event 0008
+
+The first workflow implementation of this one-line adapter accidentally emitted a
+literal `\\n` sequence into `serve/server.py` instead of a real newline. The static
+continuity probe did not catch it because the probe checked retained paths and CMake
+targets but did not compile Python sources.
+
+This was discovered only when event 0008's snapshot tests imported `serve.server`.
+
+The lab corrected the materialization on the persistent `continuity` branch and
+upgraded `lab/tools/probe.sh` to run:
+
+```text
+python3 -m compileall -q serve strata_cli strata_control
+```
+
+This is an **experiment-instrumentation defect**, not a Strata/DeepSeek compatibility
+cost, so it is excluded from the event's adapter LOC metric. The incident is retained
+here because it materially improved the measurement apparatus.
