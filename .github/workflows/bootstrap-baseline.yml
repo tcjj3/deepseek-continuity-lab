@@ -58,3 +58,4 @@ jobs:
           git commit -m "chore: initialize DeepSeek continuity lab [bootstrap-complete]"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push --force origin HEAD:main
+# bootstrap trigger revision 2
