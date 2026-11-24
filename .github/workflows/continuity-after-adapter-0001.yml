@@ -186,7 +186,105 @@ jobs:
           echo "---- last 300 lines ----"
           tail -n 300 /tmp/continuity-after-0001.log || true
 
+      - name: Resolve event 0004 and verify DeepSeek drafting behavior
+        if: steps.continue_replay.outputs.rc == '10'
+        run: |
+          test "$(git diff --name-only --diff-filter=U)" = "strata_control/drafting.py"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("strata_control/drafting.py")
+          lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+          a = next((i for i, x in enumerate(lines) if x.startswith("<<<<<<< HEAD")), None)
+          if a is None:
+              raise SystemExit("event 0004: no conflict marker")
+          b = next((i for i in range(a + 1, len(lines)) if lines[i].startswith("=======")), None)
+          z = next((i for i in range((b or a) + 1, len(lines)) if lines[i].startswith(">>>>>>>")), None)
+          if b is None or z is None:
+              raise SystemExit("event 0004: incomplete conflict markers")
+          ours = "".join(lines[a + 1:b])
+          theirs = "".join(lines[b + 1:z])
+          if "DeepSeek" not in ours or "supported_model" not in ours:
+              raise SystemExit("event 0004: continuity side no longer matches expected DeepSeek early-out")
+          if "file_fit(args, data_dir)" not in theirs or "known_name_of_file(args)" not in theirs:
+              raise SystemExit("event 0004: upstream side no longer matches file-fit expansion")
+          # Take the newer generic selector block. DeepSeek remains outside it behaviorally:
+          # DSV41 configs use --pack, while file_fit() only inspects --native.
+          lines[a:z + 1] = lines[b + 1:z]
+          p.write_text("".join(lines), encoding="utf-8")
+          PY
+          git add -A
+          git commit -m "Merge f-draft-vocab 925d6fb05 into f-p4-int" \
+            -m "Upstream-Commit: bc6f248ffaf51fd387532209f59a77d6783e6b1e" \
+            -m "Continuity-Lab: deepseek-retained" \
+            -m "Continuity-Conflict-Resolution: semantic-preserving-upstream-block" \
+            -m "Continuity-Classification: R1-semantic-preserving-merge" \
+            -m "Continuity-Adapter-LOC: 0"
+          python3 - <<'PY'
+          from strata_control import drafting
+          args = ["--pack", "/tmp/deepseek-v4.1-flash.pack", "--max-context", "131072", "--dspark", "auto"]
+          assert drafting.file_fit(args, None) == "unknown", drafting.file_fit(args, None)
+          cfg = {
+              "model_name": "deepseek-v4.1-flash",
+              "args": list(args),
+              "drafting": "auto",
+          }
+          decision = drafting.apply(
+              cfg,
+              klass="other",
+              data_dir=None,
+              family=None,
+              backend=None,
+              archs=None,
+              vram_mib=None,
+              slots=0,
+              engine=None,
+          )
+          assert decision.drafter == "mtp", decision
+          assert cfg["args"] == args, (cfg["args"], args)
+          print("event 0004 behavior PASS:", decision)
+          PY
+          bash lab/tools/probe.sh
+
+      - name: Continue after event 0004 until next failure
+        if: steps.continue_replay.outputs.rc == '10'
+        id: continue_after_0004
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py 2>&1 | tee /tmp/continuity-after-0004.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Diagnose failure after event 0004
+        if: always() && steps.continue_after_0004.outcome != 'skipped'
+        run: |
+          echo "---- replay rc ----"
+          echo "${{ steps.continue_after_0004.outputs.rc }}"
+          echo "---- HEAD ----"
+          git log -1 --format=fuller || true
+          echo "---- status ----"
+          git status --short || true
+          echo "---- unmerged ----"
+          git diff --name-only --diff-filter=U || true
+          echo "---- index stages ----"
+          git ls-files -u || true
+          for f in $(git diff --name-only --diff-filter=U); do
+            echo "===== COMBINED DIFF: $f ====="
+            git diff --cc -- "$f" || true
+            echo "===== MARKERS: $f ====="
+            grep -n -B35 -A80 "<<<<<<<" "$f" || true
+          done
+          echo "---- last 350 lines ----"
+          tail -n 350 /tmp/continuity-after-0004.log || true
+
       - name: Mark next failure
-        if: steps.continue_replay.outputs.rc != '0'
+        if: steps.continue_after_0004.outputs.rc != '' && steps.continue_after_0004.outputs.rc != '0'
         run: exit 1
+
+      - name: Fail if event 0004 was not the expected conflict
+        if: steps.continue_replay.outputs.rc != '10'
+        run: |
+          echo "Expected event 0004 replay conflict rc=10, got ${{ steps.continue_replay.outputs.rc }}"
+          exit 1
 # retrigger after generated-settings auto-adapter
