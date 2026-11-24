@@ -67,15 +67,18 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           p = Path("serve/server.py")
-          s = p.read_text(encoding="utf-8")
-          anchor = '                self.can_hold_batch = "holdb" in f[2:]\\n'
-          add = '                self.multi = next((int(x[6:]) for x in f[2:] if x.startswith("multi=") and x[6:].isdigit()), 0)\\n'
-          if s.count(anchor) != 1:
-              raise SystemExit(f"expected one READY holdb parser, got {s.count(anchor)}")
-          if add in s:
+          lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+          target = 'self.can_hold_batch = "holdb" in f[2:]'
+          hits = [i for i, line in enumerate(lines) if line.strip() == target]
+          if len(hits) != 1:
+              raise SystemExit(f"expected one READY holdb parser, got {len(hits)}")
+          if any(line.strip().startswith("self.multi = next(") for line in lines):
               raise SystemExit("multi parser unexpectedly already present")
-          s = s.replace(anchor, anchor + add, 1)
-          p.write_text(s, encoding="utf-8")
+          i = hits[0]
+          indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
+          add = indent + 'self.multi = next((int(x[6:]) for x in f[2:] if x.startswith("multi=") and x[6:].isdigit()), 0)\\n'
+          lines.insert(i + 1, add)
+          p.write_text("".join(lines), encoding="utf-8")
           PY
           git add serve/server.py
           git commit -m "continuity-adapter: preserve DeepSeek multi= READY capability beside holdb" \
