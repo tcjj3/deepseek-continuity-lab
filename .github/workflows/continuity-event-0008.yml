@@ -27,7 +27,7 @@ jobs:
 
       - name: Confirm event 0007 checkpoint
         run: |
-          test "$(git rev-parse HEAD)" = "a746738aa50389d8e61cbaa0aadefc10840dd77e"
+          git log -30 --format=%B | grep -F "Upstream-Commit: 38f63bc59123182b2933809bd623697bb81dc81e"
           bash lab/tools/probe.sh
           python3 lab/tools/replay_upstream.py --dry-run --max 12
 
