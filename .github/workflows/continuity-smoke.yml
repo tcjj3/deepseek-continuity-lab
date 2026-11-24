@@ -24,3 +24,14 @@ jobs:
 
       - name: Dry-run first 30 upstream integration commits
         run: python3 lab/tools/replay_upstream.py --dry-run --max 30
+
+      - name: Replay one upstream commit locally
+        run: |
+          git config user.name "continuity-smoke"
+          git config user.email "continuity-smoke@invalid.local"
+          git switch -c replay-smoke-local
+          python3 lab/tools/replay_upstream.py --max 1
+          echo "---- replay commit ----"
+          git log -1 --format=fuller
+          echo "---- retained DSV41 ----"
+          test -d src/dsv41
