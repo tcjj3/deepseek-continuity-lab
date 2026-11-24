@@ -28,9 +28,13 @@ require_path include/strata/dsv41
 require_path strata_control/dsv41_engine.py
 require_path docs/DEEPSEEK41.md
 
-if ! grep -R -n   --exclude-dir=.git   --exclude-dir="$BUILD_DIR"   -E 'option\(STRATA_BUILD_DSV41|add_executable\(strata-dsv41'   CMakeLists.txt cmake engine 2>/dev/null | head -n 20; then
+cmake_hits="$(grep -R -n --exclude-dir=.git --exclude-dir="$BUILD_DIR" -E 'option\(STRATA_BUILD_DSV41|add_executable\(strata-dsv41' CMakeLists.txt cmake engine 2>/dev/null || true)"
+
+if [[ -z "$cmake_hits" ]]; then
   echo "MISSING: DSV41 CMake target declaration"
   fail=1
+else
+  sed -n '1,20p' <<<"$cmake_hits"
 fi
 
 if [[ $fail -ne 0 ]]; then
@@ -46,10 +50,10 @@ rm -rf "$BUILD_DIR"
 
 case "$BACKEND" in
   cuda)
-    cmake -S . -B "$BUILD_DIR"       -DSTRATA_ENABLE_CUDA=ON       -DSTRATA_ENABLE_HIP=OFF       -DSTRATA_BUILD_DSV41=ON       -DSTRATA_BUILD_TESTS=ON
+    cmake -S . -B "$BUILD_DIR" -DSTRATA_ENABLE_CUDA=ON -DSTRATA_ENABLE_HIP=OFF -DSTRATA_BUILD_DSV41=ON -DSTRATA_BUILD_TESTS=ON
     ;;
   hip)
-    cmake -S . -B "$BUILD_DIR"       -DSTRATA_ENABLE_CUDA=OFF       -DSTRATA_ENABLE_HIP=ON       -DSTRATA_BUILD_DSV41=ON       -DSTRATA_BUILD_TESTS=ON
+    cmake -S . -B "$BUILD_DIR" -DSTRATA_ENABLE_CUDA=OFF -DSTRATA_ENABLE_HIP=ON -DSTRATA_BUILD_DSV41=ON -DSTRATA_BUILD_TESTS=ON
     ;;
   *)
     echo "Unsupported CONTINUITY_BACKEND=$BACKEND (expected cuda or hip)"
@@ -60,7 +64,7 @@ esac
 cmake --build "$BUILD_DIR" --target strata-dsv41 -j"${CONTINUITY_JOBS:-2}"
 
 if [[ "${CONTINUITY_RUN_PYTEST:-0}" == "1" ]]; then
-  python3 -m pytest -q     tests/terminal/test_dsv41_engine.py     tests/terminal/test_dsv41_context.py     tests/terminal/test_launch_dsv41.py
+  python3 -m pytest -q tests/terminal/test_dsv41_engine.py tests/terminal/test_dsv41_context.py tests/terminal/test_launch_dsv41.py
 fi
 
 if [[ -n "${CONTINUITY_RUNTIME_CMD:-}" ]]; then
