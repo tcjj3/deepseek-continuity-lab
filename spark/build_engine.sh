@@ -63,6 +63,7 @@ cd "$repo"
 # strata_kq (libstrata_kq.so) exists only in a build with llama.cpp's MMQ: STRATA_CMAKE_EXTRA=-DSTRATA_MMQ=OFF builds without it
 . "$repo/packaging/engine_targets.sh"
 targets=$(engine_targets "$cmake" "$build")
+[ "$want_dsv41" = ON ] && targets="$targets strata-dsv41"
 # shellcheck disable=SC2086
 "$cmake" --build "$build" --target $targets -j "$jobs"
 
