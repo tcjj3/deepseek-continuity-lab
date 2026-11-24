@@ -171,7 +171,7 @@ jobs:
           assert r.dsv41_engine_missing({"arch": "qwen", "exe": "/definitely/missing/strata"}) is False
           print("combined launcher invalidators PASS")
           PY
-          python3 -m pytest tests/snapshot/test_drafting_round_trip.py -q -p no:cacheprovider
+          python3 -m unittest tests.snapshot.test_drafting_round_trip -v
           python3 -m unittest tests.terminal.test_drafting_switch -v
           python3 -m unittest tests.terminal.test_launch_dsv41.LaunchDeepSeek.test_the_plan_does_not_promise_a_strata_engine_download_for_deepseek -v
 
