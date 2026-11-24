@@ -1,0 +1,227 @@
+name: Continuity Resume Event 0008
+
+on:
+  push:
+    paths:
+      - ".github/workflows/continuity-event-0008.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  event0008:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout continuity checkpoint
+        uses: actions/checkout@v4
+        with:
+          ref: continuity
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "continuity-trial"
+          git config user.email "continuity-trial@invalid.local"
+
+      - name: Confirm event 0007 checkpoint
+        run: |
+          test "$(git rev-parse HEAD)" = "a746738aa50389d8e61cbaa0aadefc10840dd77e"
+          bash lab/tools/probe.sh
+          python3 lab/tools/replay_upstream.py --dry-run --max 12
+
+      - name: Replay eight clean integrations after 0.2.14
+        run: python3 lab/tools/replay_upstream.py --max 8
+
+      - name: Reproduce event 0008
+        id: reproduce
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py --max 1 2>&1 | tee /tmp/event0008-reproduce.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Verify event 0008 conflict shape
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          expected = {"strata_cli/launch/runner.py", "strata_cli/launch/screens.py"}
+          got = set(subprocess.check_output(
+              ["git", "diff", "--name-only", "--diff-filter=U"], text=True
+          ).split())
+          if got != expected:
+              raise SystemExit(f"event 0008: expected {sorted(expected)}, got {sorted(got)}")
+          PY
+
+      - name: Resolve event 0008 upstream-first at conflict hunks only
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          expected = {
+              "strata_cli/launch/runner.py": (
+                  "dsv41_engine_missing",
+                  "self.layer_back(path)",
+              ),
+              "strata_cli/launch/screens.py": (
+                  '("Speed",',
+                  "modelstate.layer_off_without_choice",
+              ),
+          }
+
+          for name, (ours_word, theirs_word) in expected.items():
+              p = Path(name)
+              lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+              found = 0
+              while True:
+                  a = next((i for i, x in enumerate(lines) if x.startswith("<<<<<<< HEAD")), None)
+                  if a is None:
+                      break
+                  b = next((i for i in range(a + 1, len(lines)) if lines[i].startswith("=======")), None)
+                  z = next((i for i in range((b or a) + 1, len(lines)) if lines[i].startswith(">>>>>>>")), None)
+                  if b is None or z is None:
+                      raise SystemExit(f"event 0008: incomplete markers in {name}")
+                  ours = "".join(lines[a + 1:b])
+                  theirs = "".join(lines[b + 1:z])
+                  if ours_word not in ours:
+                      raise SystemExit(f"event 0008: unexpected continuity hunk in {name}: {ours!r}")
+                  if theirs_word not in theirs:
+                      raise SystemExit(f"event 0008: unexpected upstream hunk in {name}: {theirs!r}")
+                  lines[a:z + 1] = lines[b + 1:z]
+                  found += 1
+              if found != 1:
+                  raise SystemExit(f"event 0008: expected one conflict hunk in {name}, got {found}")
+              p.write_text("".join(lines), encoding="utf-8")
+          PY
+          git add -A
+          git commit -m "Merge f-ctl-drafting-auto (d7cc382ed): Drafting Auto after Off starts with the drafter again" \
+            -m "Upstream-Commit: 7f5b34d1d2a28c47ce6e479576a1459a96063650" \
+            -m "Continuity-Lab: deepseek-retained" \
+            -m "Continuity-Conflict-Resolution: upstream-first-at-conflict-hunks"
+
+      - name: Apply continuity adapter 0008
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # Shared launcher state machine: both reasons independently require setup.
+          p = Path("strata_cli/launch/runner.py")
+          lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+          hits = [i for i, line in enumerate(lines)
+                  if "if path is not None and desc is not None and desc_matches(desc, s)" in line
+                  and "not files_present(read_config(path))" in line
+                  and "not self.layer_back(path)" in line]
+          if len(hits) != 1:
+              raise SystemExit(f"event 0008: expected one reusable-install predicate, got {len(hits)}")
+          i = hits[0]
+          line = lines[i].rstrip("\n")
+          if "dsv41_engine_missing" in line:
+              raise SystemExit("event 0008: DS guard unexpectedly already present")
+          lines[i] = line + " and not self.dsv41_engine_missing(read_config(path)):\n" if line.endswith(":") else line + " and not self.dsv41_engine_missing(read_config(path))\n"
+          # If the upstream line ended with a colon, the appended condition must precede it.
+          if "path)):" + " and " in lines[i]:
+              lines[i] = lines[i].replace("path)): and ", "path)) and ")
+          if lines[i].count(":") and not lines[i].rstrip().endswith(":"):
+              raise SystemExit(f"event 0008: malformed runner predicate: {lines[i]!r}")
+          p.write_text("".join(lines), encoding="utf-8")
+
+          # UI composition: keep new generic Drafting state display and restore DS Speed.
+          p = Path("strata_cli/launch/screens.py")
+          lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+          hits = [i for i, line in enumerate(lines)
+                  if '*([("Drafting", dict(DraftingScreen.CHOICES).get(' in line
+                  and "modelstate.layer_off_without_choice" in line]
+          if len(hits) != 1:
+              raise SystemExit(f"event 0008: expected one new Drafting summary row, got {len(hits)}")
+          i = hits[0]
+          if any('*([("Speed", S.speed_words(' in line for line in lines[max(0, i-4):i+1]):
+              raise SystemExit("event 0008: DS Speed row unexpectedly already present")
+          indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
+          speed = [
+              indent + '*([("Speed", S.speed_words(s.speed or ("faster" if faster_by_default(self.ctx.computer, s) else "full"),\n',
+              indent + '                           s.speed is None))] if s.family == "deepseek41" and speed_choice_available(self.ctx) else []),\n',
+          ]
+          lines[i:i] = speed
+          p.write_text("".join(lines), encoding="utf-8")
+          PY
+          git add strata_cli/launch/runner.py strata_cli/launch/screens.py
+          git commit -m "continuity-adapter: compose DSV41 engine recovery with drafting layer recovery" \
+            -m "Adapter-For-Upstream: 7f5b34d1d2a28c47ce6e479576a1459a96063650" \
+            -m "Continuity-Classification: R3-shared-launch-state-drift" \
+            -m "Continuity-Runtime-Logical-Updates: 1" \
+            -m "Continuity-UI-Logical-Updates: 1"
+
+      - name: Validate event 0008 behavior
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          bash lab/tools/probe.sh
+          python3 - <<'PY'
+          import inspect
+          from strata_cli.launch.runner import Runner
+
+          src = inspect.getsource(Runner.ensure_model)
+          assert "not self.layer_back(path)" in src, src
+          assert "not self.dsv41_engine_missing(read_config(path))" in src, src
+
+          r = object.__new__(Runner)
+          r.dsv41_engine_found = lambda: (None, None)
+          assert r.dsv41_engine_missing({"arch": "deepseek41", "exe": "/definitely/missing/strata-dsv41"}) is True
+          assert r.dsv41_engine_missing({"arch": "qwen", "exe": "/definitely/missing/strata"}) is False
+          print("combined launcher invalidators PASS")
+          PY
+          python3 -m pytest tests/snapshot/test_drafting_round_trip.py -q -p no:cacheprovider
+          python3 -m unittest tests.terminal.test_drafting_switch -v
+          python3 -m unittest tests.terminal.test_launch_dsv41.LaunchDeepSeek.test_the_plan_does_not_promise_a_strata_engine_download_for_deepseek -v
+
+      - name: Publish verified event 0008 checkpoint
+        if: steps.reproduce.outputs.rc == '10'
+        run: git push --force origin HEAD:continuity
+
+      - name: Continue until next failure
+        if: steps.reproduce.outputs.rc == '10'
+        id: continue
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py 2>&1 | tee /tmp/after-event0008.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Diagnose next failure
+        if: always() && steps.continue.outcome != 'skipped'
+        run: |
+          echo "---- replay rc ----"
+          echo "${{ steps.continue.outputs.rc }}"
+          echo "---- HEAD ----"
+          git log -1 --format=fuller || true
+          echo "---- status ----"
+          git status --short || true
+          echo "---- unmerged ----"
+          git diff --name-only --diff-filter=U || true
+          echo "---- index stages ----"
+          git ls-files -u || true
+          for f in $(git diff --name-only --diff-filter=U); do
+            echo "===== COMBINED DIFF: $f ====="
+            git diff --cc -- "$f" || true
+            echo "===== MARKERS: $f ====="
+            grep -n -B45 -A120 "<<<<<<<" "$f" || true
+          done
+          echo "---- last 500 lines ----"
+          tail -n 500 /tmp/after-event0008.log || true
+
+      - name: Mark next failure
+        if: steps.continue.outputs.rc != '' && steps.continue.outputs.rc != '0'
+        run: exit 1
+
+      - name: Fail if event 0008 shape changed
+        if: steps.reproduce.outputs.rc != '10'
+        run: |
+          echo "Expected event 0008 conflict rc=10, got ${{ steps.reproduce.outputs.rc }}"
+          exit 1
