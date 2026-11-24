@@ -13203,7 +13203,7 @@
     },
     {
      "file": "src/core/nv_defaults.cpp",
-     "line": 78,
+     "line": 85,
      "value": "1",
      "arch": "sm_121"
     }
@@ -20501,7 +20501,7 @@
    "engine_defaults": [
     {
      "file": "src/core/nv_defaults.cpp",
-     "line": 130,
+     "line": 137,
      "value": "1",
      "arch": "NVIDIA cc>=8"
     }
@@ -20534,7 +20534,7 @@
    "first_commit": "465cd61dfb",
    "first_date": "2026-10-12",
    "since": "v0.1.44",
-   "last_commit": "6239e233a8",
+   "last_commit": "4d958fbdbf",
    "last_date": "2026-11-12",
    "status": "default",
    "owner": "core",
@@ -23738,7 +23738,7 @@
    "reads": [
     {
      "file": "src/core/nv_defaults.cpp",
-     "line": 127,
+     "line": 134,
      "backend": "cuda",
      "fn": "getenv"
     }
@@ -23755,8 +23755,8 @@
    "first_commit": "e2f7c47447",
    "first_date": "2026-11-03",
    "since": "v0.2.11",
-   "last_commit": "52ac4e7337",
-   "last_date": "2026-11-03",
+   "last_commit": "4d958fbdbf",
+   "last_date": "2026-11-12",
    "status": "research",
    "owner": "core",
    "note": "[auto] not documented for users; code default not readable from the call",
@@ -25582,7 +25582,7 @@
     },
     {
      "file": "src/core/nv_defaults.cpp",
-     "line": 137,
+     "line": 144,
      "backend": "cuda",
      "fn": "getenv"
     },
@@ -25699,7 +25699,7 @@
    "first_commit": "47de4a4d83",
    "first_date": "2026-10-02",
    "since": "v0.1.40.1",
-   "last_commit": "8ce488608d",
+   "last_commit": "d1ec6f0397",
    "last_date": "2026-11-12",
    "status": "default",
    "owner": "core",
@@ -25819,7 +25819,7 @@
    "reads": [
     {
      "file": "src/core/nv_defaults.cpp",
-     "line": 139,
+     "line": 146,
      "backend": "cuda",
      "fn": "getenv"
     },
@@ -25846,7 +25846,14 @@
    "default_state": "off",
    "code_default": null,
    "engine_sets": [],
-   "engine_defaults": [],
+   "engine_defaults": [
+    {
+     "file": "src/core/nv_defaults.cpp",
+     "line": 75,
+     "value": "1",
+     "arch": "sm_121"
+    }
+   ],
    "launch_files": [],
    "launch_sets": [],
    "launch_reads": [],
@@ -25857,8 +25864,8 @@
    "first_commit": "7440806987",
    "first_date": "2026-10-04",
    "since": "v0.1.40.1",
-   "last_commit": "3a61182bbf",
-   "last_date": "2026-11-11",
+   "last_commit": "ba15b58bdd",
+   "last_date": "2026-11-12",
    "status": "rollback",
    "owner": "prefill",
    "note": "[11-12] CUDA: the K-quant experts of UD-Q4_K_XL (Q4_K / Q5_K gate/up with a Q5_1 or Q8_0 down) are read by Strata's fused prompt kernels by default on compute capability 8.0, 8.6, 8.9 and 12.0 cards with 80 or more multiprocessors (RTX A6000, A40, RTX 3090, RTX PRO 5000 class), and with 40 to 79 on the staged launches unless STRATA_PF_FUSED_SM40=0; =0 puts them back on MMQ, =1 takes them on every sm_80+ card. AMD: still opt-in (=1 with STRATA_PF_FUSED=1 on gfx12; on by default on gfx1151 under Windows). One layer on the RTX A6000, Q4_K / Q5_1, MMQ time / fused time with the 128-row tile: 1.65 / 1.49 / 1.52 / 1.29 / 1.04 / 0.97 / 0.88 at 300 / 1,000 / 2,048 / 4,096 / 8,192 / 20,000 / 32,768 tokens. [docs/STRIX_HALO.md:228]",
@@ -26151,7 +26158,7 @@
    "reads": [
     {
      "file": "src/core/nv_defaults.cpp",
-     "line": 139,
+     "line": 146,
      "backend": "cuda",
      "fn": "getenv"
     },
@@ -26186,7 +26193,7 @@
    "first_commit": "f73297a96a",
    "first_date": "2026-11-11",
    "since": null,
-   "last_commit": "3860b43a4a",
+   "last_commit": "d1ec6f0397",
    "last_date": "2026-11-12",
    "status": "research",
    "owner": "prefill",
@@ -26260,7 +26267,7 @@
    "first_commit": "4543053612",
    "first_date": "2026-11-11",
    "since": null,
-   "last_commit": "2fdee4aeb1",
+   "last_commit": "4d958fbdbf",
    "last_date": "2026-11-12",
    "status": "research",
    "owner": "prefill",
@@ -30766,7 +30773,7 @@
    "engine_defaults": [
     {
      "file": "src/core/nv_defaults.cpp",
-     "line": 73,
+     "line": 80,
      "value": "w4a4",
      "arch": "sm_121"
     }
@@ -36320,7 +36327,7 @@
     },
     {
      "file": "src/core/nv_defaults.cpp",
-     "line": 82,
+     "line": 89,
      "value": "2",
      "arch": "sm_121"
     }
@@ -36602,8 +36609,8 @@
    "first_commit": "9a398bd5bf",
    "first_date": "2026-10-27",
    "since": "v0.2.7.1",
-   "last_commit": "f94a27da60",
-   "last_date": "2026-11-01",
+   "last_commit": "ba15b58bdd",
+   "last_date": "2026-11-12",
    "status": "opt-in",
    "owner": "kernels/cuda",
    "note": "[auto] documented for users (docs/DGX_SPARK_LINUX.md:92), 2 more",
@@ -36950,7 +36957,7 @@
    "engine_defaults": [
     {
      "file": "src/core/nv_defaults.cpp",
-     "line": 176,
+     "line": 183,
      "value": "2",
      "arch": "sm_86"
     }
@@ -36978,7 +36985,7 @@
    "reads": [
     {
      "file": "src/core/nv_defaults.cpp",
-     "line": 174,
+     "line": 181,
      "backend": "cuda",
      "fn": "getenv"
     }
@@ -37023,7 +37030,7 @@
    "engine_defaults": [
     {
      "file": "src/core/nv_defaults.cpp",
-     "line": 176,
+     "line": 183,
      "value": "200",
      "arch": "sm_86"
     }
@@ -37069,7 +37076,7 @@
    "engine_defaults": [
     {
      "file": "src/core/nv_defaults.cpp",
-     "line": 86,
+     "line": 93,
      "value": "1",
      "arch": "sm_121"
     }
