@@ -41,6 +41,10 @@ if [[ $fail -ne 0 ]]; then
   exit 21
 fi
 
+echo
+echo "[syntax] Python runtime trees"
+python3 -m compileall -q serve strata_cli strata_control
+
 if [[ "$MODE" == "static" ]]; then
   echo "STATIC PASS"
   exit 0
