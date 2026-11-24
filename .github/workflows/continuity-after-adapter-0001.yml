@@ -87,6 +87,73 @@ jobs:
             -m "Continuity-Adapter-LOC: 1"
           bash lab/tools/probe.sh
 
+      - name: Reproduce and resolve event 0002 upstream-first
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py --max 1
+          rc=$?
+          set -e
+          test "$rc" -eq 10
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("tests/split/test_split_gen_keys.py")
+          lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+          a = next((i for i, x in enumerate(lines) if x.startswith("<<<<<<< HEAD")), None)
+          if a is None:
+              raise SystemExit("event 0002: no conflict marker")
+          b = next((i for i in range(a + 1, len(lines)) if lines[i].startswith("=======")), None)
+          z = next((i for i in range((b or a) + 1, len(lines)) if lines[i].startswith(">>>>>>>")), None)
+          if b is None or z is None:
+              raise SystemExit("event 0002: incomplete conflict markers")
+          ours = "".join(lines[a + 1:b])
+          theirs = "".join(lines[b + 1:z])
+          if '"marks", "tail", "shared", "prefill", "rid"' not in ours:
+              raise SystemExit("event 0002: ours side no longer matches retained DS keys")
+          if 'OTHER_ENGINES = {"prefill", "hold"}' not in theirs:
+              raise SystemExit("event 0002: theirs side no longer matches upstream hold classification")
+          lines[a:z + 1] = lines[b + 1:z]
+          p.write_text("".join(lines), encoding="utf-8")
+          PY
+          git add -A
+          git commit -m "Merge f-agent-turn 018f0d659 into f-p4-int" \
+            -m "Upstream-Commit: 4cf79d5dc7ef422206e5366773dd0e62dbc55c10" \
+            -m "Continuity-Lab: deepseek-retained" \
+            -m "Continuity-Conflict-Resolution: upstream-first"
+
+      - name: Apply continuity adapter 0002
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("tests/split/test_split_gen_keys.py")
+          lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+          target = 'OTHER_ENGINES = {"prefill", "hold"}'
+          hits = [i for i, line in enumerate(lines) if line.strip() == target]
+          if len(hits) != 1:
+              raise SystemExit(f"event 0002: expected one upstream OTHER_ENGINES set, got {len(hits)}")
+          i = hits[0]
+          indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
+          lines[i] = indent + 'OTHER_ENGINES = {"marks", "tail", "shared", "prefill", "rid", "hold"}\n'
+          # Make the nearby comment truthful without changing test behavior.
+          j = i - 1
+          while j >= 0 and (lines[j].lstrip().startswith("#") or not lines[j].strip()):
+              j -= 1
+          comment_start = j + 1
+          replacement = [
+              indent + '# keys only other engines are sent: retained DeepSeek restore-point / multi keys,\n',
+              indent + '# the prefill-only split request, and hold for engines whose READY advertises hold/holdb.\n',
+          ]
+          lines[comment_start:i] = replacement
+          p.write_text("".join(lines), encoding="utf-8")
+          PY
+          git add tests/split/test_split_gen_keys.py
+          git commit -m "continuity-adapter: retain DeepSeek-only GEN key classifications beside hold" \
+            -m "Adapter-For-Upstream: 4cf79d5dc7ef422206e5366773dd0e62dbc55c10" \
+            -m "Continuity-Classification: R1-mechanical-replay" \
+            -m "Continuity-Runtime-LOC: 0" \
+            -m "Continuity-Test-Logical-Updates: 1"
+          bash lab/tools/probe.sh
+
       - name: Continue until next failure
         id: continue_replay
         shell: bash
