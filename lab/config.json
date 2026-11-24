@@ -1,0 +1,14 @@
+{
+  "upstream_url": "https://github.com/Niko1221/Strata.git",
+  "baseline_upstream_sha": "e4309aaf325176f90a844ad7833b58552b6ef5e1",
+  "upstream_ref": "upstream/main",
+  "integration_mode": "first-parent",
+  "skip_subject_regex": "^DeepSeek out \\\\([1-7]/7\\\\)",
+  "filtered_path_prefixes": [
+    ".github/workflows/"
+  ],
+  "probe_command": [
+    "bash",
+    "lab/tools/probe.sh"
+  ]
+}
