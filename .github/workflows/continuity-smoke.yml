@@ -1,0 +1,26 @@
+name: Continuity Lab Smoke Check
+
+on:
+  push:
+    paths:
+      - "lab/**"
+      - ".github/workflows/continuity-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout continuity lab
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Structural DSV41 probe
+        run: bash lab/tools/probe.sh
+
+      - name: Dry-run first 30 upstream integration commits
+        run: python3 lab/tools/replay_upstream.py --dry-run --max 30
