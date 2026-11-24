@@ -91,6 +91,8 @@ class AutoAgainIsAuto(unittest.TestCase):
         for runs in setup_runs:
             for m in MACHINES:
                 for s in MODEL_SETS:
+                    if s.family == "deepseek41":
+                        continue  # retained DeepSeek uses DSpark, not MTP/DFlash2 Drafting
                     yield m, s, runs
 
     def round_trip(self, middle: str, back: str = "auto"):
