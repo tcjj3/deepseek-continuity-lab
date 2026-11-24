@@ -145,18 +145,40 @@ jobs:
           ]
           lines[i:i] = speed
           p.write_text("".join(lines), encoding="utf-8")
+
+          # Upstream created this generic round-trip test after DeepSeek had been
+          # removed. In continuity, DeepSeek is an extra MODEL_SET with DSpark
+          # semantics and intentionally has no MTP/DFlash2 drafting setting.
+          p = Path("tests/snapshot/test_drafting_round_trip.py")
+          lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+          anchor = [
+              i for i in range(len(lines) - 1)
+              if lines[i].strip() == "for s in MODEL_SETS:"
+              and lines[i + 1].strip() == "yield m, s, runs"
+          ]
+          if len(anchor) != 1:
+              raise SystemExit(f"event 0008: expected one MODEL_SETS yield loop, got {len(anchor)}")
+          i = anchor[0]
+          indent = lines[i + 1][:len(lines[i + 1]) - len(lines[i + 1].lstrip())]
+          lines[i + 1:i + 1] = [
+              indent + 'if s.family == "deepseek41":\n',
+              indent + '    continue  # retained DeepSeek uses DSpark, not MTP/DFlash2 Drafting\n',
+          ]
+          p.write_text("".join(lines), encoding="utf-8")
           PY
-          git add strata_cli/launch/runner.py strata_cli/launch/screens.py
+          git add strata_cli/launch/runner.py strata_cli/launch/screens.py tests/snapshot/test_drafting_round_trip.py
           git commit -m "continuity-adapter: compose DSV41 engine recovery with drafting layer recovery" \
             -m "Adapter-For-Upstream: 7f5b34d1d2a28c47ce6e479576a1459a96063650" \
             -m "Continuity-Classification: R3-shared-launch-state-drift" \
             -m "Continuity-Runtime-Logical-Updates: 1" \
-            -m "Continuity-UI-Logical-Updates: 1"
+            -m "Continuity-UI-Logical-Updates: 1" \
+            -m "Continuity-Test-Domain-Updates: 1"
 
       - name: Validate event 0008 behavior
         if: steps.reproduce.outputs.rc == '10'
         run: |
           bash lab/tools/probe.sh
+          python3 -m pip install -q textual
           python3 - <<'PY'
           import inspect
           from strata_cli.launch.runner import Runner
