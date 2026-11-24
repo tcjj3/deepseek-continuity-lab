@@ -1,0 +1,60 @@
+name: Bootstrap Strata pre-DeepSeek-removal baseline
+
+on:
+  push:
+    paths:
+      - ".github/workflows/bootstrap-baseline.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  import-baseline:
+    if: ${{ !contains(github.event.head_commit.message, '[bootstrap-complete]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout seed repository
+        uses: actions/checkout@v4
+
+      - name: Preserve bootstrap workflow
+        run: |
+          cp .github/workflows/bootstrap-baseline.yml /tmp/bootstrap-baseline.yml
+
+      - name: Clone Strata and checkout exact pre-removal baseline
+        run: |
+          git clone https://github.com/Niko1221/Strata.git /tmp/strata-baseline
+          cd /tmp/strata-baseline
+          git checkout e4309aaf325176f90a844ad7833b58552b6ef5e1
+
+      - name: Add continuity-lab provenance metadata
+        run: |
+          cd /tmp/strata-baseline
+          mkdir -p .github/workflows
+          cp /tmp/bootstrap-baseline.yml .github/workflows/bootstrap-baseline.yml
+
+          cat > UPSTREAM-BASELINE.md <<'EOF'
+          # Upstream baseline
+
+          This repository is an independent compatibility/evolution experiment derived
+          from the public Strata repository.
+
+          - Upstream: https://github.com/Niko1221/Strata
+          - Exact baseline: `e4309aaf325176f90a844ad7833b58552b6ef5e1`
+          - Selection rule: direct pre-removal state before the `DeepSeek out` removal series
+          - Purpose: retain the historical DeepSeek implementation while replaying later
+            non-removal upstream changes and measuring compatibility/maintenance cost.
+
+          The upstream MIT license and copyright notice are preserved.
+          EOF
+
+      - name: Commit lab metadata on top of upstream history
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd /tmp/strata-baseline
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/bootstrap-baseline.yml UPSTREAM-BASELINE.md
+          git commit -m "chore: initialize DeepSeek continuity lab [bootstrap-complete]"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin HEAD:main
