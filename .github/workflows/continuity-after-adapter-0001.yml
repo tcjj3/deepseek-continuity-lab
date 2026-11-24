@@ -38,22 +38,23 @@ jobs:
           test "$rc" -eq 10
           python3 - <<'PY'
           from pathlib import Path
-          import re
           p = Path("serve/server.py")
-          s = p.read_text(encoding="utf-8")
-          pat = re.compile(
-              r'<<<<<<< HEAD\\n'
-              r'(?P<ours>\\s*self\\.multi = next\\(\\(int\\(x\\[6:\\]\\).*?\\n)'
-              r'=======\\n'
-              r'(?P<theirs>\\s*self\\.can_hold_batch = "holdb" in f\\[2:\\]\\n)'
-              r'>>>>>>> .*?\\n',
-              re.DOTALL,
-          )
-          m = pat.search(s)
-          if not m:
-              raise SystemExit("event 0001 conflict shape changed")
-          s = s[:m.start()] + m.group("theirs") + s[m.end():]
-          p.write_text(s, encoding="utf-8")
+          lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+          a = next((i for i, x in enumerate(lines) if x.startswith("<<<<<<< HEAD")), None)
+          if a is None:
+              raise SystemExit("event 0001: no conflict marker")
+          b = next((i for i in range(a + 1, len(lines)) if lines[i].startswith("=======")), None)
+          z = next((i for i in range((b or a) + 1, len(lines)) if lines[i].startswith(">>>>>>>")), None)
+          if b is None or z is None:
+              raise SystemExit("event 0001: incomplete conflict markers")
+          ours = "".join(lines[a + 1:b])
+          theirs = "".join(lines[b + 1:z])
+          if "self.multi = next(" not in ours:
+              raise SystemExit("event 0001: ours side is not the retained DeepSeek multi parser")
+          if 'self.can_hold_batch = "holdb" in f[2:]' not in theirs:
+              raise SystemExit("event 0001: theirs side is not the new holdb parser")
+          lines[a:z + 1] = lines[b + 1:z]
+          p.write_text("".join(lines), encoding="utf-8")
           PY
           git add -A
           git commit -m "Merge f-agent-turn b92075d92 into f-p4-int" \
