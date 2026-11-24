@@ -1,0 +1,120 @@
+name: Continuity Trial After Adapter 0001
+
+on:
+  push:
+    paths:
+      - ".github/workflows/continuity-after-adapter-0001.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure disposable branch
+        run: |
+          git config user.name "continuity-trial"
+          git config user.email "continuity-trial@invalid.local"
+          git switch -c after-adapter-0001-local
+
+      - name: Replay through event 0001 predecessor
+        run: python3 lab/tools/replay_upstream.py --max 27
+
+      - name: Reproduce and resolve event 0001 upstream-first
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py --max 1
+          rc=$?
+          set -e
+          test "$rc" -eq 10
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("serve/server.py")
+          s = p.read_text(encoding="utf-8")
+          pat = re.compile(
+              r'<<<<<<< HEAD\\n'
+              r'(?P<ours>\\s*self\\.multi = next\\(\\(int\\(x\\[6:\\]\\).*?\\n)'
+              r'=======\\n'
+              r'(?P<theirs>\\s*self\\.can_hold_batch = "holdb" in f\\[2:\\]\\n)'
+              r'>>>>>>> .*?\\n',
+              re.DOTALL,
+          )
+          m = pat.search(s)
+          if not m:
+              raise SystemExit("event 0001 conflict shape changed")
+          s = s[:m.start()] + m.group("theirs") + s[m.end():]
+          p.write_text(s, encoding="utf-8")
+          PY
+          git add -A
+          git commit -m "Merge f-agent-turn b92075d92 into f-p4-int" \
+            -m "Upstream-Commit: 291b91025e896f5b579a6c1df9de88df8595c0a8" \
+            -m "Continuity-Lab: deepseek-retained" \
+            -m "Continuity-Conflict-Resolution: upstream-first"
+
+      - name: Apply continuity adapter 0001
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("serve/server.py")
+          s = p.read_text(encoding="utf-8")
+          anchor = '                self.can_hold_batch = "holdb" in f[2:]\\n'
+          add = '                self.multi = next((int(x[6:]) for x in f[2:] if x.startswith("multi=") and x[6:].isdigit()), 0)\\n'
+          if s.count(anchor) != 1:
+              raise SystemExit(f"expected one READY holdb parser, got {s.count(anchor)}")
+          if add in s:
+              raise SystemExit("multi parser unexpectedly already present")
+          s = s.replace(anchor, anchor + add, 1)
+          p.write_text(s, encoding="utf-8")
+          PY
+          git add serve/server.py
+          git commit -m "continuity-adapter: preserve DeepSeek multi= READY capability beside holdb" \
+            -m "Adapter-For-Upstream: 291b91025e896f5b579a6c1df9de88df8595c0a8" \
+            -m "Continuity-Classification: R1-mechanical-replay" \
+            -m "Continuity-Adapter-LOC: 1"
+          bash lab/tools/probe.sh
+
+      - name: Continue until next failure
+        id: continue_replay
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py 2>&1 | tee /tmp/continuity-after-0001.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Diagnose next failure
+        if: always()
+        run: |
+          echo "---- replay rc ----"
+          echo "${{ steps.continue_replay.outputs.rc }}"
+          echo "---- HEAD ----"
+          git log -1 --format=fuller || true
+          echo "---- status ----"
+          git status --short || true
+          echo "---- unmerged ----"
+          git diff --name-only --diff-filter=U || true
+          echo "---- index stages ----"
+          git ls-files -u || true
+          for f in $(git diff --name-only --diff-filter=U); do
+            echo "===== COMBINED DIFF: $f ====="
+            git diff --cc -- "$f" || true
+            echo "===== MARKERS: $f ====="
+            grep -n -B30 -A60 "<<<<<<<" "$f" || true
+          done
+          echo "---- last 300 lines ----"
+          tail -n 300 /tmp/continuity-after-0001.log || true
+
+      - name: Mark next failure
+        if: steps.continue_replay.outputs.rc != '0'
+        run: exit 1
