@@ -123,12 +123,8 @@ jobs:
           line = lines[i].rstrip("\n")
           if "dsv41_engine_missing" in line:
               raise SystemExit("event 0008: DS guard unexpectedly already present")
-          lines[i] = line + " and not self.dsv41_engine_missing(read_config(path)):\n" if line.endswith(":") else line + " and not self.dsv41_engine_missing(read_config(path))\n"
-          # If the upstream line ended with a colon, the appended condition must precede it.
-          if "path)):" + " and " in lines[i]:
-              lines[i] = lines[i].replace("path)): and ", "path)) and ")
-          if lines[i].count(":") and not lines[i].rstrip().endswith(":"):
-              raise SystemExit(f"event 0008: malformed runner predicate: {lines[i]!r}")
+          base = line[:-1] if line.endswith(":") else line
+          lines[i] = base + " and not self.dsv41_engine_missing(read_config(path)):\n"
           p.write_text("".join(lines), encoding="utf-8")
 
           # UI composition: keep new generic Drafting state display and restore DS Speed.
