@@ -307,7 +307,7 @@ jobs:
           PY
           git add -A
           git commit -m "Merge f-pkg-nommq f1d2467b5 into the batch 19 candidate" \
-            -m "Upstream-Commit: bc09a17e543f4b3d116f3bd951e5a88e59a9cead" \
+            -m "Upstream-Commit: bc09a17e543f2151782a296907d8b2695c5f5232" \
             -m "Continuity-Lab: deepseek-retained" \
             -m "Continuity-Conflict-Resolution: upstream-first"
 
@@ -352,7 +352,7 @@ jobs:
           PY
           git add spark/build_engine.sh tools/test_no_llama_download.py
           git commit -m "continuity-adapter: carry DSV41 through centralized engine target selection" \
-            -m "Adapter-For-Upstream: bc09a17e543f4b3d116f3bd951e5a88e59a9cead" \
+            -m "Adapter-For-Upstream: bc09a17e543f2151782a296907d8b2695c5f5232" \
             -m "Continuity-Classification: R2-build-system-drift" \
             -m "Continuity-Build-Logic-LOC: 1" \
             -m "Continuity-Test-Logical-Updates: 1"
