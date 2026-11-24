@@ -3,11 +3,10 @@
 #
 # Runs on arm64 Linux with a CUDA 13 toolkit (13.0 is the release toolkit), on the Spark itself.
 #
-#   spark/build_engine.sh                    # engine + DeepSeek engine + picture reader -> ./out-spark/engine
+#   spark/build_engine.sh                    # engine + picture reader -> ./out-spark/engine
 #   BUILD_VISION=0 spark/build_engine.sh     # text only (faster)
-#   BUILD_DSV41=0 spark/build_engine.sh      # without the DeepSeek-V4.1 engine (strata-dsv41)
 #   ARCHS="121" OUT=/tmp/eng JOBS=8 spark/build_engine.sh
-#   SHAPE=q4_lite spark/build_engine.sh      # the engine of a model shape (packaging/shape_build.sh); no DeepSeek engine unless BUILD_DSV41=1
+#   SHAPE=q4_lite spark/build_engine.sh      # the engine of a model shape (packaging/shape_build.sh)
 #   STRATA_CMAKE_EXTRA="-DSTRATA_GEOMETRY_FILE=/abs/path/geometry.hpp"   more configure arguments for the engine build
 #
 # The result is the folder setup.py keeps a ready-made engine in: copy it to Strata/engine on the Spark and run
@@ -44,26 +43,19 @@ case "$cudafull" in
   13.*) echo "build_engine.sh: note: CUDA $cudafull has not been tried for this build; 13.0 is the release toolkit" >&2 ;;
   *) echo "build_engine.sh: needs the CUDA 13 toolkit (nvcc here: ${cudafull:-missing})" >&2; exit 2 ;;
 esac
-# the commit the DeepSeek engine prints with --version: a checkout gives it to CMake itself; a tree copy without .git needs COMMIT=<hex>
 . "$repo/packaging/shape_build.sh"; shape_setup "$repo"
-dsv41_default=1; [ -n "${SHAPE:-}" ] && dsv41_default=0
-want_dsv41=OFF; [ "${BUILD_DSV41:-$dsv41_default}" = 1 ] && want_dsv41=ON
-if [ "$want_dsv41" = ON ] && [ ! -e "$repo/.git" ] && [ ! -f "$repo/BUILD_ID" ]; then
-  [ -n "${COMMIT:-}" ] || { echo "build_engine.sh: $repo has no .git and no BUILD_ID: set COMMIT=<hex> so the DeepSeek engine can print its commit" >&2; exit 2; }
-  printf '%s\n' "$(printf '%s' "$COMMIT" | cut -c1-9)" > "$repo/BUILD_ID"
-fi
 
 real=""; for a in $(echo "$archs" | tr ';,' '  '); do real="$real;${a}-real"; done; real=${real#;}
 last=$(echo "$archs" | tr ';,' '  ' | awk '{print $NF}')
 cd "$repo"
 "$cmake" -G Ninja -S . -B "$build" -DCMAKE_BUILD_TYPE=Release -DSTRATA_ENABLE_CUDA=ON -DSTRATA_BUILD_TESTS=OFF \
     -DSTRATA_NATIVE_EXPERTS=ON -DSTRATA_PORTABLE=ON -DSTRATA_Q6K_EXPERTS=ON -DSTRATA_MMQ_KQUANTS=ON \
-    -DSTRATA_BUILD_DSV41="$want_dsv41" -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DCMAKE_SKIP_BUILD_RPATH=OFF '-DCMAKE_INSTALL_RPATH=$ORIGIN' \
-    "-DCMAKE_CUDA_ARCHITECTURES=${real};${last}-virtual" $ggml ${STRATA_CMAKE_EXTRA:-} $shape_cmake
+    -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DCMAKE_SKIP_BUILD_RPATH=OFF '-DCMAKE_INSTALL_RPATH=$ORIGIN' \
+    -DSTRATA_MMQ=ON "-DCMAKE_CUDA_ARCHITECTURES=${real};${last}-virtual" $ggml ${STRATA_CMAKE_EXTRA:-} $shape_cmake
+# -DSTRATA_MMQ=ON: not measured without MMQ; kept as in 0.2.13 (the engine default is OFF since then)
 # strata_kq (libstrata_kq.so) exists only in a build with llama.cpp's MMQ: STRATA_CMAKE_EXTRA=-DSTRATA_MMQ=OFF builds without it
 . "$repo/packaging/engine_targets.sh"
 targets=$(engine_targets "$cmake" "$build")
-[ "$want_dsv41" = ON ] && targets="$targets strata-dsv41"
 # shellcheck disable=SC2086
 "$cmake" --build "$build" --target $targets -j "$jobs"
 
@@ -82,8 +74,6 @@ rm -rf "$out"
 mkdir -p "$out"
 cp "$build/strata" "$out/"
 [ -f "$build/libstrata_kq.so" ] && cp "$build/libstrata_kq.so" "$out/"
-# DeepSeek-V4.1's engine beside it: setup.py takes engine/strata-dsv41 (dsv41_exe)
-[ "$want_dsv41" = ON ] && [ -f "$build/strata-dsv41" ] && cp "$build/strata-dsv41" "$out/"
 vision_json=""
 if [ "${BUILD_VISION:-1}" = 1 ] && [ -f "$vision_dir/bin/strata-vision" ]; then
   cp "$vision_dir/bin/strata-vision" "$out/"
@@ -93,5 +83,4 @@ fi
 "$py" packaging/collect_libs.py --binary "$build/strata" --search /usr/local/cuda/lib64 --out "$out" --also 'libcublasLt.so*'
 echo "{\"version\": \"$ver\", \"source\": \"spark/build_engine.sh\", \"platform\": \"linux-aarch64\", \"archs\": \"$archs\", \"ptx\": true, \"cuda\": \"$cudafull\", \"portable\": true$vision_json}" > "$out/BUILD.json"
 "$out/strata" --version 2>/dev/null || true
-[ "$want_dsv41" = ON ] && { "$out/strata-dsv41" --version 2>/dev/null || true; }
 echo "built: $out"
