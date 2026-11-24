@@ -418,3 +418,5 @@ jobs:
           echo "Expected event 0005 replay conflict rc=10, got ${{ steps.continue_after_0004.outputs.rc }}"
           exit 1
 # retrigger after generated-settings auto-adapter
+
+# retrigger after generalized generated-settings resolver
