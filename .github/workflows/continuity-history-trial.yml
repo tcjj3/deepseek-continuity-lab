@@ -46,6 +46,25 @@ jobs:
           git status --short || true
           echo "---- unmerged ----"
           git diff --name-only --diff-filter=U || true
+          echo "---- index stages ----"
+          git ls-files -u || true
+          echo "---- combined diff: serve/server.py ----"
+          git diff --cc -- serve/server.py || true
+          echo "---- conflict markers with context ----"
+          if grep -n '<<<<<<<' serve/server.py >/tmp/conflict-lines 2>/dev/null; then
+            while IFS=: read -r n rest; do
+              start=$((n > 35 ? n - 35 : 1))
+              end=$((n + 80))
+              echo "===== serve/server.py lines $start..$end ====="
+              sed -n "${start},${end}p" serve/server.py
+            done </tmp/conflict-lines
+          fi
+          echo "---- stage 1 (merge base) relevant READY block ----"
+          git show :1:serve/server.py 2>/dev/null | grep -n -A18 -B12 'self.can_hold' | head -n 120 || true
+          echo "---- stage 2 (continuity ours) relevant READY block ----"
+          git show :2:serve/server.py 2>/dev/null | grep -n -A18 -B12 'self.can_hold' | head -n 120 || true
+          echo "---- stage 3 (upstream theirs) relevant READY block ----"
+          git show :3:serve/server.py 2>/dev/null | grep -n -A18 -B12 'self.can_hold' | head -n 120 || true
           echo "---- last 250 replay lines ----"
           tail -n 250 /tmp/continuity-replay.log || true
 
