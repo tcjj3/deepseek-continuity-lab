@@ -278,13 +278,133 @@ jobs:
           echo "---- last 350 lines ----"
           tail -n 350 /tmp/continuity-after-0004.log || true
 
+      - name: Resolve event 0005 upstream-first
+        if: steps.continue_after_0004.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          expected = {"spark/build_engine.sh", "tools/test_no_llama_download.py"}
+          import subprocess
+          got = set(subprocess.check_output(
+              ["git", "diff", "--name-only", "--diff-filter=U"], text=True
+          ).split())
+          if got != expected:
+              raise SystemExit(f"event 0005: expected conflicts {sorted(expected)}, got {sorted(got)}")
+
+          for name in sorted(expected):
+              p = Path(name)
+              lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+              while True:
+                  a = next((i for i, x in enumerate(lines) if x.startswith("<<<<<<< HEAD")), None)
+                  if a is None:
+                      break
+                  b = next((i for i in range(a + 1, len(lines)) if lines[i].startswith("=======")), None)
+                  z = next((i for i in range((b or a) + 1, len(lines)) if lines[i].startswith(">>>>>>>")), None)
+                  if b is None or z is None:
+                      raise SystemExit(f"event 0005: incomplete markers in {name}")
+                  lines[a:z + 1] = lines[b + 1:z]
+              p.write_text("".join(lines), encoding="utf-8")
+          PY
+          git add -A
+          git commit -m "Merge f-pkg-nommq f1d2467b5 into the batch 19 candidate" \
+            -m "Upstream-Commit: bc09a17e543f4b3d116f3bd951e5a88e59a9cead" \
+            -m "Continuity-Lab: deepseek-retained" \
+            -m "Continuity-Conflict-Resolution: upstream-first"
+
+      - name: Apply continuity adapter 0005
+        if: steps.continue_after_0004.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # Build-system adapter: preserve the new upstream target abstraction,
+          # append the retained DeepSeek target only when this build asks for it.
+          p = Path("spark/build_engine.sh")
+          s = p.read_text(encoding="utf-8")
+          anchor = 'targets=$(engine_targets "$cmake" "$build")\n'
+          add = '[ "$want_dsv41" = ON ] && targets="$targets strata-dsv41"\n'
+          if s.count(anchor) != 1:
+              raise SystemExit(f"event 0005: expected one engine_targets assignment, got {s.count(anchor)}")
+          if add not in s:
+              s = s.replace(anchor, anchor + add, 1)
+          p.write_text(s, encoding="utf-8")
+
+          # Test inventory adapter: keep new upstream scripts plus the retained
+          # DeepSeek build scripts in the no-download audit.
+          p = Path("tools/test_no_llama_download.py")
+          s = p.read_text(encoding="utf-8")
+          replacements = {
+              '"packaging/build_split_hip.sh",\n':
+                  '"packaging/build_split_hip.sh", "packaging/build_dsv41_cuda.sh",\n'
+                  '           "packaging/build_dsv41_hip_linux.sh", "packaging/build_dsv41_windows.bat",\n',
+              '"packaging/build_vision_windows.bat", "packaging/build_vision_mac.sh",\n':
+                  '"packaging/build_vision_windows.bat", "packaging/build_vision_mac.sh",\n'
+                  '           "packaging/mac/build_dsv41_engine.sh",\n',
+              '"packaging/mac/build_engine.sh", "spark/build_engine.sh",\n':
+                  '"packaging/mac/build_engine.sh", "spark/build_engine.sh",\n'
+                  '           "tools/dsv41/build_hip_linux.sh", "tools/dsv41/win/build_hip_win.bat",\n',
+          }
+          for before, after in replacements.items():
+              if before not in s:
+                  raise SystemExit(f"event 0005: test inventory anchor missing: {before!r}")
+              s = s.replace(before, after, 1)
+          p.write_text(s, encoding="utf-8")
+          PY
+          git add spark/build_engine.sh tools/test_no_llama_download.py
+          git commit -m "continuity-adapter: carry DSV41 through centralized engine target selection" \
+            -m "Adapter-For-Upstream: bc09a17e543f4b3d116f3bd951e5a88e59a9cead" \
+            -m "Continuity-Classification: R2-build-system-drift" \
+            -m "Continuity-Build-Logic-LOC: 1" \
+            -m "Continuity-Test-Logical-Updates: 1"
+          bash lab/tools/probe.sh
+          python3 -m unittest tools.test_no_llama_download -v
+
+      - name: Continue after event 0005 until next failure
+        if: steps.continue_after_0004.outputs.rc == '10'
+        id: continue_after_0005
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py 2>&1 | tee /tmp/continuity-after-0005.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Diagnose failure after event 0005
+        if: always() && steps.continue_after_0005.outcome != 'skipped'
+        run: |
+          echo "---- replay rc ----"
+          echo "${{ steps.continue_after_0005.outputs.rc }}"
+          echo "---- HEAD ----"
+          git log -1 --format=fuller || true
+          echo "---- status ----"
+          git status --short || true
+          echo "---- unmerged ----"
+          git diff --name-only --diff-filter=U || true
+          echo "---- index stages ----"
+          git ls-files -u || true
+          for f in $(git diff --name-only --diff-filter=U); do
+            echo "===== COMBINED DIFF: $f ====="
+            git diff --cc -- "$f" || true
+            echo "===== MARKERS: $f ====="
+            grep -n -B40 -A100 "<<<<<<<" "$f" || true
+          done
+          echo "---- last 400 lines ----"
+          tail -n 400 /tmp/continuity-after-0005.log || true
+
       - name: Mark next failure
-        if: steps.continue_after_0004.outputs.rc != '' && steps.continue_after_0004.outputs.rc != '0'
+        if: steps.continue_after_0005.outputs.rc != '' && steps.continue_after_0005.outputs.rc != '0'
         run: exit 1
 
       - name: Fail if event 0004 was not the expected conflict
         if: steps.continue_replay.outputs.rc != '10'
         run: |
           echo "Expected event 0004 replay conflict rc=10, got ${{ steps.continue_replay.outputs.rc }}"
+          exit 1
+
+      - name: Fail if event 0005 was not the expected conflict
+        if: steps.continue_after_0004.outputs.rc != '10'
+        run: |
+          echo "Expected event 0005 replay conflict rc=10, got ${{ steps.continue_after_0004.outputs.rc }}"
           exit 1
 # retrigger after generated-settings auto-adapter
