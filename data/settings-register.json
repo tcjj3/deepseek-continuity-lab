@@ -9005,7 +9005,7 @@
    "launch_sets": [],
    "launch_reads": [],
    "doc_mentions": [
-    "docs/UNSLOTH_Q4.md:205"
+    "docs/UNSLOTH_Q4.md:206"
    ],
    "first_commit": "003ec62140",
    "first_date": "2026-10-01",
@@ -13101,7 +13101,8 @@
     "docs/STRIX_HALO.md:238",
     "docs/STRIX_HALO_WINDOWS.md:65",
     "docs/STRIX_HALO_WINDOWS.md:66",
-    "docs/UNSLOTH_Q4.md:37"
+    "docs/UNSLOTH_Q4.md:40",
+    "docs/UNSLOTH_Q4.md:42"
    ],
    "first_commit": "fe6c5260ec",
    "first_date": "2026-10-03",
@@ -16143,7 +16144,7 @@
     "docs/QUANTS.md:40",
     "docs/QUANTS.md:41",
     "docs/QUANTS.md:127",
-    "docs/UNSLOTH_Q4.md:203"
+    "docs/UNSLOTH_Q4.md:204"
    ],
    "first_commit": "7d8fc8fd04",
    "first_date": "2026-10-01",
@@ -17867,8 +17868,8 @@
    "launch_reads": [],
    "doc_mentions": [
     "docs/QUANTS.md:62",
-    "docs/UNSLOTH_Q4.md:168",
-    "docs/UNSLOTH_Q4.md:193"
+    "docs/UNSLOTH_Q4.md:169",
+    "docs/UNSLOTH_Q4.md:194"
    ],
    "first_commit": "5396360ef7",
    "first_date": "2026-09-30",
@@ -17951,8 +17952,8 @@
    "launch_reads": [],
    "doc_mentions": [
     "docs/QUANTS.md:62",
-    "docs/UNSLOTH_Q4.md:168",
-    "docs/UNSLOTH_Q4.md:193"
+    "docs/UNSLOTH_Q4.md:169",
+    "docs/UNSLOTH_Q4.md:194"
    ],
    "first_commit": "5f02176997",
    "first_date": "2026-10-01",
@@ -17995,7 +17996,7 @@
    "launch_reads": [],
    "doc_mentions": [
     "docs/DETAILS.md:297",
-    "docs/UNSLOTH_Q4.md:201"
+    "docs/UNSLOTH_Q4.md:202"
    ],
    "first_commit": "0dac2b9aa1",
    "first_date": "2026-10-01",
@@ -18038,7 +18039,7 @@
    "launch_reads": [],
    "doc_mentions": [
     "docs/DETAILS.md:291",
-    "docs/UNSLOTH_Q4.md:201"
+    "docs/UNSLOTH_Q4.md:202"
    ],
    "first_commit": "0dac2b9aa1",
    "first_date": "2026-10-01",
@@ -20911,10 +20912,10 @@
     "docs/QUANTS.md:51",
     "docs/QUANTS.md:53",
     "docs/QUANTS.md:88",
-    "docs/UNSLOTH_Q4.md:40",
-    "docs/UNSLOTH_Q4.md:190",
-    "docs/UNSLOTH_Q4.md:202",
-    "docs/UNSLOTH_Q4.md:305",
+    "docs/UNSLOTH_Q4.md:39",
+    "docs/UNSLOTH_Q4.md:191",
+    "docs/UNSLOTH_Q4.md:203",
+    "docs/UNSLOTH_Q4.md:306",
     "docs/UNSLOTH_Q6.md:17",
     "docs/UNSLOTH_Q6.md:102"
    ],
@@ -24752,7 +24753,7 @@
    "launch_sets": [],
    "launch_reads": [],
    "doc_mentions": [
-    "docs/UNSLOTH_Q4.md:204"
+    "docs/UNSLOTH_Q4.md:205"
    ],
    "first_commit": "003ec62140",
    "first_date": "2026-10-01",
@@ -24794,7 +24795,7 @@
    "launch_sets": [],
    "launch_reads": [],
    "doc_mentions": [
-    "docs/UNSLOTH_Q4.md:204"
+    "docs/UNSLOTH_Q4.md:205"
    ],
    "first_commit": "f8525fa0b0",
    "first_date": "2026-10-01",
@@ -35788,8 +35789,8 @@
     "docs/DETAILS.md:268",
     "docs/DETAILS.md:766",
     "docs/TROUBLESHOOTING.md:260",
-    "docs/UNSLOTH_Q4.md:154",
-    "docs/UNSLOTH_Q4.md:206"
+    "docs/UNSLOTH_Q4.md:155",
+    "docs/UNSLOTH_Q4.md:207"
    ],
    "first_commit": "5ac6d37e59",
    "first_date": "2026-09-30",
@@ -36455,8 +36456,8 @@
     "docs/OLDER_GPUS.md:278",
     "docs/QUANTS.md:158",
     "docs/QUANTS.md:162",
-    "docs/UNSLOTH_Q4.md:38",
-    "docs/UNSLOTH_Q4.md:40"
+    "docs/UNSLOTH_Q4.md:37",
+    "docs/UNSLOTH_Q4.md:39"
    ],
    "first_commit": "65268d9961",
    "first_date": "2026-10-09",
@@ -40121,7 +40122,7 @@
    "launch_sets": [],
    "launch_reads": [],
    "doc_mentions": [
-    "docs/UNSLOTH_Q4.md:205"
+    "docs/UNSLOTH_Q4.md:206"
    ],
    "first_commit": "8baae07184",
    "first_date": "2026-09-29",
@@ -40236,7 +40237,7 @@
    "doc_mentions": [
     "docs/DETAILS.md:1064",
     "docs/INTEL.md:45",
-    "docs/UNSLOTH_Q4.md:205"
+    "docs/UNSLOTH_Q4.md:206"
    ],
    "first_commit": "8baae07184",
    "first_date": "2026-09-29",
