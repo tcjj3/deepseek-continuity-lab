@@ -181,6 +181,88 @@ def conflict_files() -> list[str]:
     ]
 
 
+def upstream_changed_files(sha: str) -> list[str]:
+    parents = git("show", "-s", "--format=%P", sha).stdout.strip().split()
+    if not parents:
+        return []
+    out = git("diff", "--name-only", parents[0], sha).stdout
+    return [x for x in out.splitlines() if x]
+
+
+def auto_resolve_generated_settings(
+    sha: str,
+    sub: str,
+    cfg: dict,
+    no_probe: bool,
+) -> int | None:
+    if not cfg.get("auto_generated_settings_docs", False):
+        return None
+    if conflict_files() != ["docs/SETTINGS.md"]:
+        return None
+    if not sub.startswith("docs: settings page regenerated from the register"):
+        return None
+    if upstream_changed_files(sha) != ["docs/SETTINGS.md"]:
+        return None
+
+    print(
+        "\n[auto-adapter] generated settings page conflict: "
+        "accepting upstream generated artifact, then regenerating from the "
+        "continuity register"
+    )
+
+    git("checkout", "--theirs", "--", "docs/SETTINGS.md")
+    git("add", "-A")
+    commit_current(
+        commit_message(
+            sha,
+            extra=[
+                "Continuity-Conflict-Resolution: upstream-generated-first",
+                "Continuity-Classification: R1-generated-artifact-drift",
+            ],
+        )
+    )
+
+    p = run("python3", "tools/settings_register.py", "--docs", check=False)
+    if p.returncode:
+        print(p.stdout, file=sys.stderr)
+        return 21
+
+    git("add", "docs/SETTINGS.md")
+    changed = bool(git("diff", "--cached", "--name-only").stdout.strip())
+    if changed:
+        adapter_msg = (
+            "continuity-adapter: regenerate settings docs with retained "
+            "DeepSeek register entries\n\n"
+            f"Adapter-For-Upstream: {sha}\n"
+            "Continuity-Classification: R1-generated-artifact-drift\n"
+            "Continuity-Manual-LOC: 0\n"
+            "Continuity-Generated-Files: docs/SETTINGS.md\n"
+        )
+        commit_current(adapter_msg)
+    else:
+        print("[auto-adapter] regeneration produced no continuity delta")
+
+    event(
+        kind="auto-generated-settings-adapter",
+        upstream_sha=sha,
+        subject=sub,
+        generated_file="docs/SETTINGS.md",
+        manual_loc=0,
+    )
+
+    if no_probe:
+        return 0
+    rc = run_probe(cfg)
+    event(
+        kind="probe",
+        upstream_sha=sha,
+        subject=sub,
+        returncode=rc,
+        after_auto_adapter=True,
+    )
+    return rc
+
+
 def commit_current(msg: str, allow_empty: bool = False) -> None:
     args = ["commit"]
     if allow_empty:
@@ -289,6 +371,18 @@ def main() -> int:
 
         result = apply_without_commit(sha)
         if result.returncode:
+            auto_rc = auto_resolve_generated_settings(
+                sha, sub, cfg, args.no_probe
+            )
+            if auto_rc is not None:
+                if auto_rc:
+                    print(
+                        f"\nGenerated-settings auto-adapter failed after {sha} "
+                        f"with rc={auto_rc}."
+                    )
+                    return 20
+                continue
+
             files = conflict_files()
             event(
                 kind="replay-conflict",

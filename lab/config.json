@@ -13,5 +13,6 @@
   ],
   "skip_commit_shas": [
     "aff3a132f53486e2c140586df38c96e8e34e1ed0"
-  ]
+  ],
+  "auto_generated_settings_docs": true
 }
