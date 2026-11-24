@@ -1,0 +1,110 @@
+name: Continuity Resume From Checkpoint
+
+on:
+  push:
+    paths:
+      - ".github/workflows/continuity-resume.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  resume:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout verified continuity branch
+        uses: actions/checkout@v4
+        with:
+          ref: continuity
+          fetch-depth: 0
+
+      - name: Configure
+        run: |
+          git config user.name "continuity-trial"
+          git config user.email "continuity-trial@invalid.local"
+
+      - name: Confirm checkpoint
+        run: |
+          git log -1 --format=fuller
+          grep -F -- '-DSTRATA_BUILD_DSV41="$want_dsv41" -DSTRATA_MMQ=ON' spark/build_engine.sh
+          bash lab/tools/probe.sh
+
+      - name: Reproduce event 0007
+        id: event7
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py --max 1 2>&1 | tee /tmp/event7.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Resolve event 0007 as upstream release policy
+        if: steps.event7.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          expected = {"AGENTS.md", "packaging/UPDATES.md"}
+          got = set(subprocess.check_output(
+              ["git", "diff", "--name-only", "--diff-filter=U"], text=True
+          ).split())
+          if got != expected:
+              raise SystemExit(f"event 0007: expected {sorted(expected)}, got {sorted(got)}")
+          PY
+          git checkout --theirs -- AGENTS.md packaging/UPDATES.md
+          git add -A
+          git commit -m "Version 0.2.14 / engine 0.1.60" \
+            -m "Upstream-Commit: 38f63bc59123182b2933809bd623697bb81dc81e" \
+            -m "Continuity-Lab: deepseek-retained" \
+            -m "Continuity-Classification: R0-release-policy-divergence" \
+            -m "Continuity-Conflict-Resolution: follow-upstream-release-metadata"
+          bash lab/tools/probe.sh
+
+      - name: Publish event 0007 checkpoint
+        if: steps.event7.outputs.rc == '10'
+        run: git push --force origin HEAD:continuity
+
+      - name: Continue until next failure
+        if: steps.event7.outputs.rc == '10'
+        id: continue
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py 2>&1 | tee /tmp/continuity-resume.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Diagnose next failure
+        if: always() && steps.continue.outcome != 'skipped'
+        run: |
+          echo "---- replay rc ----"
+          echo "${{ steps.continue.outputs.rc }}"
+          echo "---- HEAD ----"
+          git log -1 --format=fuller || true
+          echo "---- status ----"
+          git status --short || true
+          echo "---- unmerged ----"
+          git diff --name-only --diff-filter=U || true
+          echo "---- index stages ----"
+          git ls-files -u || true
+          for f in $(git diff --name-only --diff-filter=U); do
+            echo "===== COMBINED DIFF: $f ====="
+            git diff --cc -- "$f" || true
+            echo "===== MARKERS: $f ====="
+            grep -n -B45 -A120 "<<<<<<<" "$f" || true
+          done
+          echo "---- last 500 lines ----"
+          tail -n 500 /tmp/continuity-resume.log || true
+
+      - name: Mark next failure
+        if: steps.continue.outputs.rc != '' && steps.continue.outputs.rc != '0'
+        run: exit 1
+
+      - name: Fail if event 0007 shape changed
+        if: steps.event7.outputs.rc != '10'
+        run: |
+          echo "Expected event 0007 conflict rc=10, got ${{ steps.event7.outputs.rc }}"
+          exit 1
