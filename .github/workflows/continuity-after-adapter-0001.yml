@@ -223,3 +223,4 @@ jobs:
       - name: Mark next failure
         if: steps.continue_replay.outputs.rc != '0'
         run: exit 1
+# retrigger after generated-settings auto-adapter
