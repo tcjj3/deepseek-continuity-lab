@@ -154,6 +154,40 @@ jobs:
             -m "Continuity-Test-Logical-Updates: 1"
           bash lab/tools/probe.sh
 
+      - name: Replay through event 0003 predecessor
+        run: python3 lab/tools/replay_upstream.py --max 28
+
+      - name: Reproduce and resolve event 0003 upstream-first
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py --max 1
+          rc=$?
+          set -e
+          test "$rc" -eq 10
+          test "$(git diff --name-only --diff-filter=U)" = "docs/SETTINGS.md"
+          git checkout --theirs -- docs/SETTINGS.md
+          git add -A
+          git commit -m "docs: settings page regenerated from the register" \
+            -m "Upstream-Commit: 5d54982709879000c2e2b783c729850ce1949824" \
+            -m "Continuity-Lab: deepseek-retained" \
+            -m "Continuity-Conflict-Resolution: upstream-generated-first"
+
+      - name: Apply continuity adapter 0003
+        run: |
+          python3 tools/settings_register.py --docs
+          git add docs/SETTINGS.md
+          if git diff --cached --quiet; then
+            echo "expected continuity regeneration to differ from post-removal upstream"
+            exit 1
+          fi
+          git commit -m "continuity-adapter: regenerate settings docs with retained DeepSeek register entries" \
+            -m "Adapter-For-Upstream: 5d54982709879000c2e2b783c729850ce1949824" \
+            -m "Continuity-Classification: R1-generated-artifact-drift" \
+            -m "Continuity-Manual-LOC: 0" \
+            -m "Continuity-Generated-Files: docs/SETTINGS.md"
+          bash lab/tools/probe.sh
+
       - name: Continue until next failure
         id: continue_replay
         shell: bash
