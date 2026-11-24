@@ -199,9 +199,18 @@ def auto_resolve_generated_settings(
         return None
     if conflict_files() != ["docs/SETTINGS.md"]:
         return None
-    if not sub.startswith("docs: settings page regenerated from the register"):
-        return None
-    if upstream_changed_files(sha) != ["docs/SETTINGS.md"]:
+
+    # SETTINGS.md declares itself generated from the settings register. A commit
+    # may legitimately change the register, troubleshooting docs and the generated
+    # page together, so "upstream changed only SETTINGS.md" is too restrictive.
+    # Only auto-resolve when both conflict stages still carry the generator marker.
+    marker = (
+        "Generated from data/settings-register.json by "
+        "tools/settings_register.py --docs"
+    )
+    ours = git("show", ":2:docs/SETTINGS.md", check=False).stdout
+    theirs = git("show", ":3:docs/SETTINGS.md", check=False).stdout
+    if marker not in ours or marker not in theirs:
         return None
 
     print(
