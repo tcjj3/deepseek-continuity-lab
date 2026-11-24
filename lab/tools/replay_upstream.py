@@ -240,6 +240,14 @@ def main() -> int:
         pending = pending[: args.max]
 
     skip_re = re.compile(cfg["skip_subject_regex"], re.IGNORECASE)
+    skip_shas = set(cfg.get("skip_commit_shas", []))
+
+    def skip_reason(sha: str, sub: str) -> str | None:
+        if sha in skip_shas:
+            return "removal-integration-merge"
+        if skip_re.search(sub):
+            return "explicit-removal-commit"
+        return None
 
     print(f"Baseline upstream SHA : {cfg['baseline_upstream_sha']}")
     print(f"Integration ref       : {cfg['upstream_ref']}")
@@ -248,8 +256,11 @@ def main() -> int:
 
     if args.dry_run:
         for sha in pending:
-            tag = "SKIP-REMOVAL" if skip_re.search(subject(sha)) else "REPLAY"
-            print(f"{tag:12} {sha[:12]}  {subject(sha)}")
+            sub = subject(sha)
+            reason = skip_reason(sha, sub)
+            tag = "SKIP-REMOVAL" if reason else "REPLAY"
+            suffix = f"  [{reason}]" if reason else ""
+            print(f"{tag:12} {sha[:12]}  {sub}{suffix}")
         return 0
 
     for index, sha in enumerate(pending, 1):
@@ -257,14 +268,23 @@ def main() -> int:
         short = sha[:12]
         print(f"\n[{index}/{len(pending)}] {short} {sub}")
 
-        if skip_re.search(sub):
+        reason = skip_reason(sha, sub)
+        if reason:
             msg = commit_message(
                 sha,
                 prefix="[continuity-skip/removal]",
-                extra=["Continuity-Classification: R0-explicit-removal-policy"],
+                extra=[
+                    "Continuity-Classification: R0-explicit-removal-policy",
+                    f"Continuity-Skip-Reason: {reason}",
+                ],
             )
             commit_current(msg, allow_empty=True)
-            event(kind="skip-removal", upstream_sha=sha, subject=sub)
+            event(
+                kind="skip-removal",
+                upstream_sha=sha,
+                subject=sub,
+                reason=reason,
+            )
             continue
 
         result = apply_without_commit(sha)

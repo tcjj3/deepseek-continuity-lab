@@ -120,3 +120,16 @@ When Strata eventually introduces a new official DeepSeek implementation, compar
 3. the future official DeepSeek implementation.
 
 The important comparison is abstraction-level, not just text diff: loader, tensor format, planner, memory ownership, attention path, MoE routing, kernel interface, scheduling and runtime lifecycle.
+
+
+## 9. Removal integration merge
+
+The explicit removal work was developed on a side branch and integrated into main through:
+
+`aff3a132f53486e2c140586df38c96e8e34e1ed0` — `Merge f-ds-out ... into f-own-int`.
+
+Comparing its first parent with its second parent shows 17 side-branch commits: 16 removal-related commits and one synchronization merge that brought the already-mainline `9bef5255...` settings-register change into the removal branch.
+
+Therefore the continuity experiment skips the entire `aff3a132...` integration merge by exact SHA. This preserves the non-removal mainline changes that already existed on the first parent while excluding the removal branch as a unit.
+
+The subject-regex skip remains as a secondary guard for direct removal commits encountered during branch drill-down.
