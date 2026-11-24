@@ -1,0 +1,56 @@
+name: Continuity History Trial
+
+on:
+  push:
+    paths:
+      - ".github/workflows/continuity-history-trial.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replay-until-first-failure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout continuity lab
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure disposable replay branch
+        run: |
+          git config user.name "continuity-trial"
+          git config user.email "continuity-trial@invalid.local"
+          git switch -c continuity-history-trial-local
+
+      - name: Replay until first failure
+        id: replay
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py 2>&1 | tee /tmp/continuity-replay.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Diagnostic snapshot
+        if: always()
+        run: |
+          echo "---- replay exit ----"
+          echo "${{ steps.replay.outputs.rc }}"
+          echo "---- HEAD ----"
+          git log -1 --format=fuller || true
+          echo "---- working tree ----"
+          git status --short || true
+          echo "---- unmerged ----"
+          git diff --name-only --diff-filter=U || true
+          echo "---- last 250 replay lines ----"
+          tail -n 250 /tmp/continuity-replay.log || true
+
+      - name: Mark detected failure
+        if: steps.replay.outputs.rc != '0'
+        run: |
+          echo "Continuity replay stopped with rc=${{ steps.replay.outputs.rc }}"
+          exit 1
