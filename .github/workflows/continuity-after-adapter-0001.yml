@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   replay:
@@ -402,8 +402,80 @@ jobs:
           echo "---- last 400 lines ----"
           tail -n 400 /tmp/continuity-after-0005.log || true
 
+      - name: Resolve event 0006 upstream-first
+        if: steps.continue_after_0005.outputs.rc == '10'
+        run: |
+          test "$(git diff --name-only --diff-filter=U)" = "spark/build_engine.sh"
+          git checkout --theirs -- spark/build_engine.sh
+          git add -A
+          git commit -m "Merge f-mmq-default-off: build the engine without llama.cpp's MMQ kernels by default" \
+            -m "Upstream-Commit: 5649b9e5249a14eb4c284634ee130427025a5ea9" \
+            -m "Continuity-Lab: deepseek-retained" \
+            -m "Continuity-Conflict-Resolution: upstream-first"
+
+      - name: Apply continuity adapter 0006
+        if: steps.continue_after_0005.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("spark/build_engine.sh")
+          s = p.read_text(encoding="utf-8")
+          anchor = '    -DSTRATA_MMQ=ON "-DCMAKE_CUDA_ARCHITECTURES='
+          if s.count(anchor) != 1:
+              raise SystemExit(f"event 0006: expected one Spark MMQ anchor, got {s.count(anchor)}")
+          add = '    -DSTRATA_BUILD_DSV41="$want_dsv41" -DSTRATA_MMQ=ON "-DCMAKE_CUDA_ARCHITECTURES='
+          s = s.replace(anchor, add, 1)
+          p.write_text(s, encoding="utf-8")
+          PY
+          git add spark/build_engine.sh
+          git commit -m "continuity-adapter: retain DSV41 in the Spark MMQ build" \
+            -m "Adapter-For-Upstream: 5649b9e5249a14eb4c284634ee130427025a5ea9" \
+            -m "Continuity-Classification: R2-build-system-drift" \
+            -m "Continuity-Build-Logic-LOC: 1"
+          grep -F -- '-DSTRATA_BUILD_DSV41="$want_dsv41" -DSTRATA_MMQ=ON' spark/build_engine.sh
+          bash lab/tools/probe.sh
+
+      - name: Publish verified continuity checkpoint
+        if: steps.continue_after_0005.outputs.rc == '10'
+        run: |
+          git push --force origin HEAD:continuity
+          echo "Published continuity checkpoint at $(git rev-parse HEAD)"
+
+      - name: Continue after event 0006 until next failure
+        if: steps.continue_after_0005.outputs.rc == '10'
+        id: continue_after_0006
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py 2>&1 | tee /tmp/continuity-after-0006.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Diagnose failure after event 0006
+        if: always() && steps.continue_after_0006.outcome != 'skipped'
+        run: |
+          echo "---- replay rc ----"
+          echo "${{ steps.continue_after_0006.outputs.rc }}"
+          echo "---- HEAD ----"
+          git log -1 --format=fuller || true
+          echo "---- status ----"
+          git status --short || true
+          echo "---- unmerged ----"
+          git diff --name-only --diff-filter=U || true
+          echo "---- index stages ----"
+          git ls-files -u || true
+          for f in $(git diff --name-only --diff-filter=U); do
+            echo "===== COMBINED DIFF: $f ====="
+            git diff --cc -- "$f" || true
+            echo "===== MARKERS: $f ====="
+            grep -n -B45 -A120 "<<<<<<<" "$f" || true
+          done
+          echo "---- last 450 lines ----"
+          tail -n 450 /tmp/continuity-after-0006.log || true
+
       - name: Mark next failure
-        if: steps.continue_after_0005.outputs.rc != '' && steps.continue_after_0005.outputs.rc != '0'
+        if: steps.continue_after_0006.outputs.rc != '' && steps.continue_after_0006.outputs.rc != '0'
         run: exit 1
 
       - name: Fail if event 0004 was not the expected conflict
