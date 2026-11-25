@@ -132,6 +132,7 @@ jobs:
         if: steps.reproduce.outputs.rc == '10'
         run: |
           bash lab/tools/probe.sh
+          npm --prefix apps/host ci --no-audit --no-fund
           node --check apps/host/server/native-control.mjs
           node --test apps/host/tests/fix0215-drafting-off.test.mjs apps/host/tests/drafting.test.mjs
           node --test apps/host/tests/native-ds-args.test.mjs apps/host/tests/native-ds-parallel.test.mjs
