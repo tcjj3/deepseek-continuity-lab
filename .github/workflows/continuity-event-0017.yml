@@ -1,0 +1,282 @@
+name: Continuity Resume Event 0017
+
+on:
+  push:
+    paths:
+      - ".github/workflows/continuity-event-0017.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  event0017:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout clean predecessor
+        uses: actions/checkout@v4
+        with:
+          ref: continuity
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "continuity-trial"
+          git config user.email "continuity-trial@invalid.local"
+
+      - name: Confirm event 0016 plus clean predecessor
+        run: |
+          git log -260 --format=%B | grep -F "Upstream-Commit: e2f859f0bd4fcf0fcf61093c9e83b85eaf9f93f3"
+          git log -20 --format=%B | grep -F "Upstream-Commit: 5df6a89030203e3ddd739e630bb4034b07c47dab"
+          bash lab/tools/probe.sh
+
+      - name: Reproduce event 0017
+        id: reproduce
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py --max 1 2>&1 | tee /tmp/event0017.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Resolve own-stack cleanup upstream-first
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          expected = {
+              "docs/DGX_SPARK_LINUX.md",
+              "docs/SETTINGS.md",
+              "packaging/build_cuda_linux_aarch64.sh",
+              "spark/build_engine.sh",
+          }
+          got = set(subprocess.check_output(
+              ["git", "diff", "--name-only", "--diff-filter=U"], text=True
+          ).split())
+          if got != expected:
+              raise SystemExit(f"event 0017 conflict set changed: {sorted(got)}")
+
+          for name in sorted(expected):
+              p = Path(name)
+              lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+              n = 0
+              while True:
+                  a = next((i for i, x in enumerate(lines) if x.startswith("<<<<<<< HEAD")), None)
+                  if a is None:
+                      break
+                  b = next((i for i in range(a + 1, len(lines)) if lines[i].startswith("=======")), None)
+                  z = next((i for i in range((b or a) + 1, len(lines)) if lines[i].startswith(">>>>>>>")), None)
+                  if b is None or z is None:
+                      raise SystemExit(f"incomplete markers in {name}")
+                  ours = "".join(lines[a + 1:b])
+                  theirs = "".join(lines[b + 1:z])
+                  if name == "spark/build_engine.sh" and "MMQ build path left the tree" not in theirs:
+                      raise SystemExit("event 0017 Spark hunk is not the MMQ-removal migration")
+                  lines[a:z + 1] = lines[b + 1:z]
+                  n += 1
+              if n == 0:
+                  raise SystemExit(f"no conflict hunk resolved in {name}")
+              p.write_text("".join(lines), encoding="utf-8")
+          PY
+          git add -A
+          git commit -m "Merge f-0216-ggml2: remove llama.cpp MMQ build path and vendored ggml-cuda"             -m "Upstream-Commit: 978b7a8d375e80bf451f5f60d0f382e39d263f7b"             -m "Continuity-Lab: deepseek-retained"             -m "Continuity-Conflict-Resolution: upstream-own-stack-first"
+
+      - name: Restore only DSV41 Spark and ARM64 package presence
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("spark/build_engine.sh")
+          s = p.read_text(encoding="utf-8")
+
+          shape = '. "$repo/packaging/shape_build.sh"; shape_setup "$repo"\n'
+          if s.count(shape) != 1:
+              raise SystemExit("event 0017: shape_setup anchor changed")
+          if "want_dsv41=OFF;" not in s:
+              extra = (
+                  '# the commit the DeepSeek engine prints with --version: a checkout gives it to CMake itself; a tree copy without .git needs COMMIT=<hex>\n'
+                  'dsv41_default=1; [ -n "${SHAPE:-}" ] && dsv41_default=0\n'
+                  'want_dsv41=OFF; [ "${BUILD_DSV41:-$dsv41_default}" = 1 ] && want_dsv41=ON\n'
+                  'if [ "$want_dsv41" = ON ] && [ ! -e "$repo/.git" ] && [ ! -f "$repo/BUILD_ID" ]; then\n'
+                  '  [ -n "${COMMIT:-}" ] || { echo "build_engine.sh: $repo has no .git and no BUILD_ID: set COMMIT=<hex> so the DeepSeek engine can print its commit" >&2; exit 2; }\n'
+                  '  printf "%s\\n" "$(printf "%s" "$COMMIT" | cut -c1-9)" > "$repo/BUILD_ID"\n'
+                  'fi\n'
+              )
+              s = s.replace(shape, shape + extra, 1)
+
+          old = '    "-DCMAKE_CUDA_ARCHITECTURES=${real};${last}-virtual" $ggml ${STRATA_CMAKE_EXTRA:-} $shape_cmake\n'
+          new = '    -DSTRATA_BUILD_DSV41="$want_dsv41" "-DCMAKE_CUDA_ARCHITECTURES=${real};${last}-virtual" $ggml ${STRATA_CMAKE_EXTRA:-} $shape_cmake\n'
+          if s.count(old) != 1:
+              raise SystemExit(f"event 0017: configure anchor count {s.count(old)}")
+          s = s.replace(old, new, 1)
+
+          anchor = 'targets=$(engine_targets "$cmake" "$build")\n'
+          if s.count(anchor) != 1:
+              raise SystemExit("event 0017: target-list anchor changed")
+          if 'targets="$targets strata-dsv41"' not in s:
+              s = s.replace(anchor, anchor + '[ "$want_dsv41" = ON ] && targets="$targets strata-dsv41"\n', 1)
+
+          anchor = 'cp "$build/strata" "$out/"\n'
+          if s.count(anchor) != 1:
+              raise SystemExit("event 0017: copy anchor changed")
+          if 'cp "$build/strata-dsv41" "$out/"' not in s:
+              s = s.replace(anchor, anchor + '[ "$want_dsv41" = ON ] && [ -f "$build/strata-dsv41" ] && cp "$build/strata-dsv41" "$out/"\n', 1)
+
+          anchor = '"$out/strata" --version 2>/dev/null || true\n'
+          if s.count(anchor) != 1:
+              raise SystemExit("event 0017: version anchor changed")
+          if '"$out/strata-dsv41" --version' not in s:
+              s = s.replace(anchor, anchor + '[ "$want_dsv41" = ON ] && { "$out/strata-dsv41" --version 2>/dev/null || true; }\n', 1)
+
+          # The MMQ build path is gone. Do not resurrect its configure options.
+          for dead in ("STRATA_MMQ=", "STRATA_MMQ_KQUANTS=", "STRATA_PREFILL_MMQ="):
+              if dead in s:
+                  raise SystemExit(f"event 0017: dead MMQ option returned in Spark script: {dead}")
+
+          p.write_text(s, encoding="utf-8")
+
+          p = Path("packaging/build_cuda_linux_aarch64.sh")
+          s = p.read_text(encoding="utf-8")
+          insert_after = 'shape_pkg=\n[ -n "${SHAPE:-}" ] && shape_pkg="--package $SHAPE"\n'
+          if insert_after not in s:
+              raise SystemExit("event 0017: ARM64 shape anchor changed")
+          if "dsv41=1; req=--require-dsv41" not in s:
+              dsv = (
+                  'dsv41=1; req=--require-dsv41\n'
+                  'if [ -n "${SHAPE:-}" ]; then dsv41=0; req=$shape_pkg; fi\n'
+              )
+              s = s.replace(insert_after, insert_after + dsv, 1)
+
+          old = 'OUT=$stage/engine BUILD_VISION=${BUILD_VISION:-1} sh spark/build_engine.sh\n'
+          new = 'OUT=$stage/engine BUILD_VISION=${BUILD_VISION:-1} BUILD_DSV41=$dsv41 sh spark/build_engine.sh\n'
+          if old in s:
+              s = s.replace(old, new, 1)
+          elif new not in s:
+              raise SystemExit("event 0017: ARM64 build invocation changed")
+
+          if 'mkdir -p "$out/dsv41"' not in s:
+              s = s.replace('mkdir -p "$out"\n', 'mkdir -p "$out"\nmkdir -p "$out/dsv41"\n', 1)
+
+          pkg_anchor = '"$py" packaging/package_engine.py --src "$stage/engine"'
+          i = s.find(pkg_anchor)
+          if i < 0:
+              raise SystemExit("event 0017: main package command missing")
+          if "$req" not in s[i:i+1200]:
+              # add the continuity requirement to the continuation that already carries shape_pkg
+              s = s.replace('$shape_pkg\n', '$shape_pkg $req\n', 1)
+
+          if 'cp "$stage/engine/strata-dsv41"' not in s:
+              marker = 'for d in "$out"/*/; do\n'
+              if marker not in s:
+                  raise SystemExit("event 0017: package finalization anchor changed")
+              block = (
+                  'if [ "$dsv41" = 1 ]; then\n'
+                  '  ds=$stage/dsv41\n'
+                  '  mkdir -p "$ds"\n'
+                  '  cp "$stage/engine/strata-dsv41" "$stage/engine/BUILD.json" "$stage/engine/SYSTEM-LIBS.txt" "$ds/"\n'
+                  '  cp "$stage/engine"/libcublas*.so* "$stage/engine"/libcudart.so* "$ds/" 2>/dev/null || true\n'
+                  '  "$py" packaging/package_engine.py --src "$ds" --backend cuda --version "$ver" --out "$out/dsv41" --arch sm_121 --arch compute_121 \\\n'
+                  '      --min-driver nvidia=$mindriver --variant cuda13 --platform linux-aarch64 --build-id "$id" --entrypoint strata-dsv41 \\\n'
+                  '      --prefix strata-dsv41\n'
+                  'fi\n'
+              )
+              s = s.replace(marker, block + 'for d in "$out"/*/ "$out"/dsv41/*/; do\n', 1)
+
+          p.write_text(s, encoding="utf-8")
+
+          p = Path("docs/DGX_SPARK_LINUX.md")
+          s = p.read_text(encoding="utf-8")
+          if "strata-dsv41" not in s:
+              marker = "out-spark/engine/"
+              idx = s.find(marker)
+              if idx < 0:
+                  raise SystemExit("event 0017: Spark output doc anchor missing")
+              line_start = s.rfind("\n", 0, idx) + 1
+              line_end = s.find("\n", idx)
+              line = s[line_start:line_end]
+              if "strata-vision" in line:
+                  line = line.replace("strata-vision", "strata-vision, strata-dsv41", 1)
+                  s = s[:line_start] + line + s[line_end:]
+              else:
+                  raise SystemExit("event 0017: Spark output line changed")
+          if "BUILD_DSV41=0" not in s:
+              marker = "BUILD_VISION=0"
+              s = s.replace(marker, marker + " and `BUILD_DSV41=0`", 1)
+          p.write_text(s, encoding="utf-8")
+          PY
+
+          # SETTINGS.md is generated: merge the register, not the generated prose.
+          python3 tools/settings_register.py --docs
+
+          git add spark/build_engine.sh packaging/build_cuda_linux_aarch64.sh docs/DGX_SPARK_LINUX.md docs/SETTINGS.md
+          git commit -m "continuity-adapter: carry DSV41 through complete MMQ and vendored ggml-cuda removal"             -m "Adapter-For-Upstream: 978b7a8d375e80bf451f5f60d0f382e39d263f7b"             -m "Continuity-Classification: R2-build-packaging-plus-R1-generated-docs"             -m "Continuity-Retained-Old-MMQ-Path: no"
+
+      - name: Validate event 0017
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          bash lab/tools/probe.sh
+          python3 -m unittest tests.terminal.test_linux_aarch64 -v
+          python3 tools/settings_register.py --docs --check 2>/dev/null || true
+          python3 - <<'PY'
+          from pathlib import Path
+
+          spark = Path("spark/build_engine.sh").read_text(encoding="utf-8")
+          for dead in ("STRATA_MMQ=", "STRATA_MMQ_KQUANTS=", "STRATA_PREFILL_MMQ="):
+              assert dead not in spark, dead
+          for live in (
+              '-DSTRATA_BUILD_DSV41="$want_dsv41"',
+              'targets="$targets strata-dsv41"',
+              'cp "$build/strata-dsv41" "$out/"',
+              '"$out/strata-dsv41" --version',
+          ):
+              assert live in spark, live
+
+          pkg = Path("packaging/build_cuda_linux_aarch64.sh").read_text(encoding="utf-8")
+          for live in (
+              'BUILD_DSV41=$dsv41 sh spark/build_engine.sh',
+              '--require-dsv41',
+              'cp "$stage/engine/strata-dsv41"',
+              '--entrypoint strata-dsv41',
+          ):
+              assert live in pkg, live
+
+          # The deleted vendored CUDA/MMQ implementation must stay deleted.
+          for dead in (
+              Path("third_party/strata-ggml/ggml/src/ggml-cuda"),
+              Path("third_party/strata-ggml/ggml/src/ggml-cuda-tq"),
+          ):
+              assert not dead.exists(), dead
+
+          # Retained DSV41 device code must not reach back into the removed path.
+          bad = []
+          for p in Path("src/dsv41").rglob("*"):
+              if not p.is_file() or p.suffix not in {".cu", ".cuh", ".cpp", ".hpp", ".h"}:
+                  continue
+              s = p.read_text(encoding="utf-8", errors="ignore")
+              for needle in ("ggml-cuda/", "STRATA_MMQ", "libstrata_kq"):
+                  if needle in s:
+                      bad.append((str(p), needle))
+          assert not bad, bad
+
+          cm = Path("cmake/strata_gpu_engine.cmake").read_text(encoding="utf-8")
+          assert "strata-dsv41" in cm
+          assert "strata_mmq" not in "\n".join(
+              line for line in cm.splitlines() if "dsv41" in line.lower()
+          )
+          print("event 0017 complete MMQ/ggml-cuda removal + retained DSV41 PASS")
+          PY
+
+      - name: Publish verified event 0017 checkpoint
+        if: steps.reproduce.outputs.rc == '10'
+        run: git push --force origin HEAD:continuity
+
+      - name: Fail if event shape changed
+        if: steps.reproduce.outputs.rc != '10'
+        run: |
+          echo "Expected event 0017 conflict rc=10, got ${{ steps.reproduce.outputs.rc }}"
+          exit 1
