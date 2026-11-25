@@ -1,0 +1,86 @@
+name: Continuity Scan After Event 0014
+
+on:
+  push:
+    paths:
+      - ".github/workflows/continuity-after-0014.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout verified continuity branch
+        uses: actions/checkout@v4
+        with:
+          ref: continuity
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "continuity-scan"
+          git config user.email "continuity-scan@invalid.local"
+
+      - name: Confirm R4 checkpoint
+        run: |
+          git log -120 --format=%B | grep -F "Upstream-Commit: 59764975cd8c066b7e9d651b311eed08ed887b60"
+          bash lab/tools/probe.sh
+
+      - name: Replay until next failure
+        id: replay
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py 2>&1 | tee /tmp/scan.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          if [ -f .git/CHERRY_PICK_HEAD ]; then
+            echo "failing_sha=$(cat .git/CHERRY_PICK_HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+          exit 0
+
+      - name: Capture next failure
+        if: steps.replay.outputs.rc != '0'
+        run: |
+          echo "---- rc ----"
+          echo "${{ steps.replay.outputs.rc }}"
+          echo "---- failing upstream ----"
+          echo "${{ steps.replay.outputs.failing_sha }}"
+          echo "---- HEAD predecessor ----"
+          git log -1 --format=fuller
+          echo "---- status ----"
+          git status --short
+          echo "---- unmerged ----"
+          git diff --name-only --diff-filter=U
+          echo "---- index stages ----"
+          git ls-files -u
+          for f in $(git diff --name-only --diff-filter=U); do
+            echo "===== COMBINED DIFF: $f ====="
+            git diff --cc -- "$f" || true
+            echo "===== CONFLICT CONTEXT: $f ====="
+            grep -n -B70 -A220 "<<<<<<<" "$f" || true
+          done
+          echo "---- last 800 replay lines ----"
+          tail -n 800 /tmp/scan.log || true
+
+      - name: Persist the last clean predecessor checkpoint
+        if: steps.replay.outputs.rc == '10'
+        run: |
+          failing="${{ steps.replay.outputs.failing_sha }}"
+          git cherry-pick --abort
+          echo "checkpoint=$(git rev-parse HEAD)"
+          echo "next=$failing"
+          git push --force origin HEAD:continuity
+
+      - name: Persist fully replayed line
+        if: steps.replay.outputs.rc == '0'
+        run: |
+          git push --force origin HEAD:continuity
+
+      - name: Mark discovered failure
+        if: steps.replay.outputs.rc != '0'
+        run: exit 1
