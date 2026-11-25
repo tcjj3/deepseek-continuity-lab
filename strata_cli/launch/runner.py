@@ -1327,7 +1327,7 @@ class Runner:
             raise LaunchError("No model was chosen.", "Choose a model, or use --model NAME (strata launch --help lists them).", 2)
         path, desc = self.installed_state()
         if path is not None and desc is not None and desc_matches(desc, s) and not files_present(read_config(path)) and not self.layer_back(path) \
-                and not getattr(self, "_layer_fetch", False):
+                and not getattr(self, "_layer_fetch", False) and not self.dsv41_engine_missing(read_config(path)):
             if self.installed_serves_request(path):
                 self.emit("model", f"{s.family} {s.model} is already installed with these choices.", 100)
                 return path
