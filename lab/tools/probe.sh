@@ -56,6 +56,16 @@ if grep -Fq -- '-DSTRATA_BUILD_DSV41="$want_dsv41"' spark/build_engine.sh; then
   grep -Fq '"$out/strata-dsv41" --version' spark/build_engine.sh
 fi
 
+echo
+echo "[hip-dsv41] own-vision packaging invariants"
+bash -n packaging/build_hip_linux.sh
+grep -Fq -- '-DSTRATA_BUILD_DSV41=ON' packaging/build_hip_linux.sh
+grep -Fq 'strata-dsv41' packaging/build_hip_linux.sh
+if grep -Fq -- '-DLLAMA_DIR=' packaging/build_hip_linux.sh; then
+  echo "unexpected legacy LLAMA_DIR in HIP own-vision build" >&2
+  exit 23
+fi
+
 if [[ "$MODE" == "static" ]]; then
   echo "STATIC PASS"
   exit 0
