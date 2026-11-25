@@ -123,22 +123,16 @@ jobs:
           if "def is_deepseek(" not in s:
               s = s.replace(anchor, helper + anchor, 1)
 
-          old = (
-              '    from strata_control import retired\n'
-              '    if retired.config_reason(cfg):                   # a DeepSeek config (strata_control/retired.py): this Strata does not run it\n'
-              '        return False\n'
-              '    if sw.only == "qwen-any":\n'
-          )
+          applies_at = s.index("def applies(")
+          start = s.index("    from strata_control import retired\n", applies_at)
+          qwen = s.index('    if sw.only == "qwen-any":\n', start)
           new = (
               '    if sw.only == "deepseek":\n'
               '        return is_deepseek(cfg)\n'
               '    if is_deepseek(cfg):\n'
               '        return False\n'
-              '    if sw.only == "qwen-any":\n'
           )
-          if old not in s:
-              raise SystemExit("upstream retired-policy block changed")
-          s = s.replace(old, new, 1)
+          s = s[:start] + new + s[qwen:]
           p.write_text(s, encoding="utf-8")
 
           # App rule: retained DeepSeek gets its own switch; it never gets Qwen
