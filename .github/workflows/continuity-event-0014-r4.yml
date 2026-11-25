@@ -1,0 +1,167 @@
+name: Continuity R4 Candidate 0014
+
+on:
+  push:
+    paths:
+      - ".github/workflows/continuity-event-0014-r4.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  metal-contract:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      METAL_CPP_URL: https://developer.apple.com/metal/cpp/files/metal-cpp_26.zip
+      METAL_CPP_SHA256: 4df3c078b9aadcb516212e9cb03004cbc5ce9a3e9c068fa3144d021db585a3a4
+    steps:
+      - name: Checkout continuity checkpoint
+        uses: actions/checkout@v4
+        with:
+          ref: continuity
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "continuity-trial"
+          git config user.email "continuity-trial@invalid.local"
+
+      - name: Confirm event 0013 checkpoint and runner
+        run: |
+          git log -100 --format=%B | grep -F "Upstream-Commit: b2d08647c5cf769798c9644328d5bde283f71f22"
+          bash lab/tools/probe.sh
+          echo "machine=$(uname -m)"
+          test "$(uname -m)" = "arm64"
+
+      - name: Replay sixteen clean integrations after event 0013
+        run: python3 lab/tools/replay_upstream.py --max 16
+
+      - name: Reproduce R4 candidate 0014
+        id: reproduce
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py --max 1 2>&1 | tee /tmp/event0014-reproduce.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Verify and resolve the Metal quant-contract conflict upstream-first
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          test "$(git diff --name-only --diff-filter=U)" = "metal/CMakeLists.txt"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("metal/CMakeLists.txt")
+          lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+          a = next((i for i, x in enumerate(lines) if x.startswith("<<<<<<< HEAD")), None)
+          if a is None:
+              raise SystemExit("event 0014: no conflict marker")
+          b = next((i for i in range(a + 1, len(lines)) if lines[i].startswith("=======")), None)
+          z = next((i for i in range((b or a) + 1, len(lines)) if lines[i].startswith(">>>>>>>")), None)
+          if b is None or z is None:
+              raise SystemExit("event 0014: incomplete conflict markers")
+          ours = "".join(lines[a + 1:b])
+          theirs = "".join(lines[b + 1:z])
+          if "DeepSeek CPU lane" not in ours or "STRATA_OWN_CPU_QUANT" not in ours:
+              raise SystemExit("event 0014: continuity side is not the retained DSV41 quant contract")
+          if "ON by default since 0.2.16" not in theirs or "if(NOT STRATA_OWN_CPU_QUANT OR STRATA_BUILD_TESTS)" not in theirs:
+              raise SystemExit("event 0014: upstream side is not the ggml-out Metal migration")
+          lines[a:z + 1] = lines[b + 1:z]
+          p.write_text("".join(lines), encoding="utf-8")
+          PY
+          git add -A
+          git commit -m "Merge f-ggml-out-0215: move Metal CPU pool to Strata quant and omit ggml from release builds"             -m "Upstream-Commit: 59764975cd8c066b7e9d651b311eed08ed887b60"             -m "Continuity-Lab: deepseek-retained"             -m "Continuity-Conflict-Resolution: upstream-first-at-quant-contract-hunk"
+
+      - name: Keep the shared quant contract documentation truthful for DSV41
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("metal/CMakeLists.txt")
+          s = p.read_text(encoding="utf-8")
+          a = "# OWN-2N: the CPU expert rows and the --mtp-q4 requantizer on the Strata quant layer"
+          b = "# OWN-2N: the CPU expert rows, the retained DeepSeek CPU lane's rows and the --mtp-q4 requantizer on the Strata quant layer"
+          if s.count(a) != 1:
+              raise SystemExit(f"event 0014: option comment anchor count {s.count(a)}")
+          s = s.replace(a, b, 1)
+          a = 'option(STRATA_OWN_CPU_QUANT "CPU expert pool and --mtp-q4 on the Strata quant layer instead of ggml-cpu\'s type traits" ON)'
+          b = 'option(STRATA_OWN_CPU_QUANT "CPU expert pool, retained DeepSeek CPU lane and --mtp-q4 on the Strata quant layer instead of ggml-cpu\'s type traits" ON)'
+          if s.count(a) != 1:
+              raise SystemExit(f"event 0014: option description anchor count {s.count(a)}")
+          s = s.replace(a, b, 1)
+          p.write_text(s, encoding="utf-8")
+          PY
+          git add metal/CMakeLists.txt
+          git commit -m "continuity-adapter: keep DSV41 on the Metal own-quant contract"             -m "Adapter-For-Upstream: 59764975cd8c066b7e9d651b311eed08ed887b60"             -m "Continuity-Classification: R4-compatible-contract-migration"             -m "Continuity-DS-Runtime-LOC: 0"             -m "Continuity-Changed-Contract: Metal-CPU-quant-backend"
+
+      - name: Install build prerequisites and pinned metal-cpp
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          brew install ninja
+          curl -fsSL "$METAL_CPP_URL" -o metal-cpp.zip
+          echo "$METAL_CPP_SHA256  metal-cpp.zip" | shasum -a 256 -c -
+          unzip -q metal-cpp.zip -d _mcpp
+          cmake --version | head -1
+          ninja --version
+
+      - name: Apple-Silicon quant oracle with retained DSV41 CPU lane
+        if: steps.reproduce.outputs.rc == '10'
+        env:
+          BUILD_ROOT: build-quant-r4
+          JOBS: 3
+          QUANT_PARITY_ARGS: --rows 64
+          QUANT_CMAKE_ARGS: -DSTRATA_BUILD_DSV41=ON -DSTRATA_OWN_CPU_QUANT=ON
+        run: |
+          bash tests/quant/run_oracle.sh neon
+          cmake --build build-quant-r4/neon --target ds4_gg_bench -j 3
+          for t in 16 18 21 29; do
+            for nt in 1 4; do
+              echo "=== DSV41 CPU lane parity: type=$t nt=$nt ==="
+              build-quant-r4/neon/ds4_gg_bench --type "$t" --threads 2 --mb 2 --nt "$nt" --reps 1
+            done
+          done
+
+      - name: Build retained Metal DSV41 with the new default and no ggml
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          cmake -S metal -B build-metal-own -G Ninja -DCMAKE_BUILD_TYPE=Release             -DMETAL_CPP_DIR="$PWD/_mcpp/metal-cpp" -DSTRATA_BUILD_TESTS=OFF
+          grep -F "STRATA_OWN_CPU_QUANT:BOOL=ON" build-metal-own/CMakeCache.txt
+          if ninja -C build-metal-own -t targets all | grep -Eq "^(ggml-base|ggml-cpu):"; then
+            echo "unexpected ggml target in default own-quant release build"
+            exit 1
+          fi
+          cmake --build build-metal-own --target strata_ds4 -j 3
+          ninja -C build-metal-own -t commands strata_ds4 | grep "ds4_gg_cpu.cpp" | grep "STRATA_OWN_CPU_QUANT=1"
+          build-metal-own/strata_ds4 --version
+          if otool -L build-metal-own/strata_ds4 | grep -i ggml; then
+            echo "unexpected dynamic ggml dependency"
+            exit 1
+          fi
+
+      - name: Build retained Metal DSV41 on the old ggml-cpu contract too
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          cmake -S metal -B build-metal-ggml -G Ninja -DCMAKE_BUILD_TYPE=Release             -DMETAL_CPP_DIR="$PWD/_mcpp/metal-cpp" -DSTRATA_BUILD_TESTS=OFF -DSTRATA_OWN_CPU_QUANT=OFF
+          grep -F "STRATA_OWN_CPU_QUANT:BOOL=OFF" build-metal-ggml/CMakeCache.txt
+          ninja -C build-metal-ggml -t targets all | grep -E "^(ggml-base|ggml-cpu):"
+          cmake --build build-metal-ggml --target strata_ds4 -j 3
+          if ninja -C build-metal-ggml -t commands strata_ds4 | grep "ds4_gg_cpu.cpp" | grep -q "STRATA_OWN_CPU_QUANT=1"; then
+            echo "old ggml-cpu DSV41 path unexpectedly compiled as own-quant"
+            exit 1
+          fi
+          build-metal-ggml/strata_ds4 --version
+
+      - name: Publish verified R4-candidate checkpoint
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          bash lab/tools/probe.sh
+          git push --force origin HEAD:continuity
+
+      - name: Fail if candidate shape changed
+        if: steps.reproduce.outputs.rc != '10'
+        run: |
+          echo "Expected event 0014 conflict rc=10, got ${{ steps.reproduce.outputs.rc }}"
+          exit 1
