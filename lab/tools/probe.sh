@@ -45,6 +45,17 @@ echo
 echo "[syntax] Python runtime trees"
 python3 -m compileall -q serve strata_cli strata_control
 
+echo
+echo "[spark-dsv41] POSIX syntax and retained target/package invariants"
+sh -n spark/build_engine.sh
+sh -n packaging/build_cuda_linux_aarch64.sh
+if grep -Fq -- '-DSTRATA_BUILD_DSV41="$want_dsv41"' spark/build_engine.sh; then
+  grep -Fq 'want_dsv41=OFF;' spark/build_engine.sh
+  grep -Fq 'targets="$targets strata-dsv41"' spark/build_engine.sh
+  grep -Fq 'cp "$build/strata-dsv41" "$out/"' spark/build_engine.sh
+  grep -Fq '"$out/strata-dsv41" --version' spark/build_engine.sh
+fi
+
 if [[ "$MODE" == "static" ]]; then
   echo "STATIC PASS"
   exit 0
