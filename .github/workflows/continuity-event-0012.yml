@@ -1,0 +1,138 @@
+name: Continuity Resume Event 0012
+
+on:
+  push:
+    paths:
+      - ".github/workflows/continuity-event-0012.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  event0012:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout continuity checkpoint
+        uses: actions/checkout@v4
+        with:
+          ref: continuity
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "continuity-trial"
+          git config user.email "continuity-trial@invalid.local"
+
+      - name: Confirm event 0011 checkpoint
+        run: |
+          git log -70 --format=%B | grep -F "Upstream-Commit: 1821f298d4a1de367392a0291ff7d8197b3b0e66"
+          bash lab/tools/probe.sh
+
+      - name: Replay seven clean integrations after event 0011
+        run: python3 lab/tools/replay_upstream.py --max 7
+
+      - name: Reproduce event 0012
+        id: reproduce
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py --max 1 2>&1 | tee /tmp/event0012-reproduce.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Resolve event 0012 by following upstream app architecture
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          test "$(git diff --name-only --diff-filter=U)" = "apps/host/server/index.mjs"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("apps/host/server/index.mjs")
+          lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+          a = next((i for i, x in enumerate(lines) if x.startswith("<<<<<<< HEAD")), None)
+          if a is None:
+              raise SystemExit("event 0012: no conflict marker")
+          b = next((i for i in range(a + 1, len(lines)) if lines[i].startswith("=======")), None)
+          z = next((i for i in range((b or a) + 1, len(lines)) if lines[i].startswith(">>>>>>>")), None)
+          if b is None or z is None:
+              raise SystemExit("event 0012: incomplete conflict markers")
+          ours = "".join(lines[a + 1:b])
+          theirs = "".join(lines[b + 1:z])
+          if "startupModelId" not in ours:
+              raise SystemExit("event 0012: continuity side is not the legacy startup-load path")
+          if "No start-up load" not in theirs:
+              raise SystemExit("event 0012: upstream side is not the no-llama startup policy")
+          lines[a:z + 1] = lines[b + 1:z]
+          p.write_text("".join(lines), encoding="utf-8")
+          PY
+          git add -A
+          git commit -m "Merge f-no-llama-server: the packaged app loads only through the Strata engine" \
+            -m "Upstream-Commit: f5ef26889a38367e1b659ca74585688ba4719a34" \
+            -m "Continuity-Lab: deepseek-retained" \
+            -m "Continuity-Classification: R1-semantic-preserving-upstream-cleanup" \
+            -m "Continuity-Adapter-LOC: 0" \
+            -m "Continuity-Conflict-Resolution: follow-upstream-app-runtime"
+
+      - name: Validate event 0012
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          bash lab/tools/probe.sh
+          node --check apps/host/server/index.mjs
+          node --check apps/host/server/supervisor.mjs
+          node --test apps/host/tests/no-llama-server.test.mjs
+          python3 - <<'PY'
+          from pathlib import Path
+          text = "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in Path("apps/host").rglob("*") if p.is_file() and p.suffix in {".mjs", ".js", ".ts", ".tsx"})
+          # This event must not require a DSV41-specific app adapter.
+          assert "strata-dsv41" not in text.lower()
+          print("event 0012 app cleanup is DSV41-independent PASS")
+          PY
+
+      - name: Publish verified event 0012 checkpoint
+        if: steps.reproduce.outputs.rc == '10'
+        run: git push --force origin HEAD:continuity
+
+      - name: Continue until next failure
+        if: steps.reproduce.outputs.rc == '10'
+        id: continue
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py 2>&1 | tee /tmp/after-event0012.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Diagnose next failure
+        if: always() && steps.continue.outcome != 'skipped'
+        run: |
+          echo "---- replay rc ----"
+          echo "${{ steps.continue.outputs.rc }}"
+          echo "---- HEAD ----"
+          git log -1 --format=fuller || true
+          echo "---- status ----"
+          git status --short || true
+          echo "---- unmerged ----"
+          git diff --name-only --diff-filter=U || true
+          echo "---- index stages ----"
+          git ls-files -u || true
+          for f in $(git diff --name-only --diff-filter=U); do
+            echo "===== COMBINED DIFF: $f ====="
+            git diff --cc -- "$f" || true
+            echo "===== MARKERS: $f ====="
+            grep -n -B60 -A180 "<<<<<<<" "$f" || true
+          done
+          echo "---- last 700 lines ----"
+          tail -n 700 /tmp/after-event0012.log || true
+
+      - name: Mark next failure
+        if: steps.continue.outputs.rc != '' && steps.continue.outputs.rc != '0'
+        run: exit 1
+
+      - name: Fail if event 0012 shape changed
+        if: steps.reproduce.outputs.rc != '10'
+        run: |
+          echo "Expected event 0012 conflict rc=10, got ${{ steps.reproduce.outputs.rc }}"
+          exit 1
