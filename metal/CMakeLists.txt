@@ -78,10 +78,10 @@ if(NOT STRATA_METAL_ENGINE)
 endif()
 include(${STRATA_ROOT}/cmake/strata_ggml.cmake)        # -DSTRATA_GGML_DIR, or the vendored third_party/strata-ggml
 include(${STRATA_ROOT}/cmake/backends/metal.cmake)
-# OWN-2N: the CPU expert rows and the --mtp-q4 requantizer on the Strata quant layer (src/quant, its Arm NEON tier, no ggml-cpu
+# OWN-2N: the CPU expert rows, the retained DeepSeek CPU lane's rows and the --mtp-q4 requantizer on the Strata quant layer (src/quant, its Arm NEON tier, no ggml-cpu
 # call from the pool) instead of ggml-cpu's type traits.  ON by default since 0.2.16 (bit-exact against ggml-cpu's NEON dots under Apple Clang,
 # tests/quant/run_oracle.sh, OWN-2N); -DSTRATA_OWN_CPU_QUANT=OFF builds the ggml-cpu pool (kept selectable for two releases).
-option(STRATA_OWN_CPU_QUANT "CPU expert pool and --mtp-q4 on the Strata quant layer instead of ggml-cpu's type traits" ON)
+option(STRATA_OWN_CPU_QUANT "CPU expert pool, retained DeepSeek CPU lane and --mtp-q4 on the Strata quant layer instead of ggml-cpu's type traits" ON)
 option(STRATA_BUILD_TESTS "Build the quant layer's self-test and ggml oracle test (needs STRATA_OWN_CPU_QUANT)" OFF)
 # ggml-base / ggml-cpu only where something links them: the ggml-cpu pool and the tests (ggml as the oracle).  The default engine has no ggml.
 if(NOT STRATA_OWN_CPU_QUANT OR STRATA_BUILD_TESTS)
