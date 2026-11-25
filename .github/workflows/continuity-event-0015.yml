@@ -1,0 +1,247 @@
+name: Continuity Resume Event 0015
+
+on:
+  push:
+    paths:
+      - ".github/workflows/continuity-event-0015.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  event0015:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout continuity checkpoint
+        uses: actions/checkout@v4
+        with:
+          ref: continuity
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "continuity-trial"
+          git config user.email "continuity-trial@invalid.local"
+
+      - name: Confirm event 0014 checkpoint
+        run: |
+          git log -140 --format=%B | grep -F "Upstream-Commit: 59764975cd8c066b7e9d651b311eed08ed887b60"
+          bash lab/tools/probe.sh
+
+      - name: Reproduce event 0015
+        id: reproduce
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py --max 1 2>&1 | tee /tmp/event0015.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Resolve event 0015 upstream-first
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          expected = {
+              "packaging/ENGINE-COMPONENT.md",
+              "packaging/build_cuda_linux_aarch64.sh",
+              "spark/build_engine.sh",
+          }
+          got = set(subprocess.check_output(
+              ["git", "diff", "--name-only", "--diff-filter=U"], text=True
+          ).split())
+          if got != expected:
+              raise SystemExit(f"event 0015: expected {sorted(expected)}, got {sorted(got)}")
+
+          for name in sorted(expected):
+              p = Path(name)
+              lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+              n = 0
+              while True:
+                  a = next((i for i, x in enumerate(lines) if x.startswith("<<<<<<< HEAD")), None)
+                  if a is None:
+                      break
+                  b = next((i for i in range(a + 1, len(lines)) if lines[i].startswith("=======")), None)
+                  z = next((i for i in range((b or a) + 1, len(lines)) if lines[i].startswith(">>>>>>>")), None)
+                  if b is None or z is None:
+                      raise SystemExit(f"event 0015: incomplete markers in {name}")
+                  ours = "".join(lines[a + 1:b])
+                  theirs = "".join(lines[b + 1:z])
+                  if name == "spark/build_engine.sh":
+                      if "-DSTRATA_MMQ=ON" not in ours or "-DSTRATA_MMQ=OFF" not in theirs:
+                          raise SystemExit("event 0015: unexpected Spark MMQ conflict")
+                  lines[a:z + 1] = lines[b + 1:z]
+                  n += 1
+              if n == 0:
+                  raise SystemExit(f"event 0015: no conflict hunk in {name}")
+              p.write_text("".join(lines), encoding="utf-8")
+          PY
+          git add -A
+          git commit -m "Merge f-spark-nommq: the DGX Spark ARM64 engine builds without llama.cpp MMQ"             -m "Upstream-Commit: 0112473047401ede9642a43bc60a458e2266912c"             -m "Continuity-Lab: deepseek-retained"             -m "Continuity-Conflict-Resolution: upstream-first-at-conflict-hunks"
+
+      - name: Apply DSV41 Spark continuity adapter
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("spark/build_engine.sh")
+          s = p.read_text(encoding="utf-8")
+
+          shape = '. "$repo/packaging/shape_build.sh"; shape_setup "$repo"\n'
+          if s.count(shape) != 1:
+              raise SystemExit("event 0015: shape_setup anchor changed")
+          if "want_dsv41=OFF;" not in s:
+              extra = (
+                  '# the commit the DeepSeek engine prints with --version: a checkout gives it to CMake itself; a tree copy without .git needs COMMIT=<hex>\n'
+                  'dsv41_default=1; [ -n "${SHAPE:-}" ] && dsv41_default=0\n'
+                  'want_dsv41=OFF; [ "${BUILD_DSV41:-$dsv41_default}" = 1 ] && want_dsv41=ON\n'
+                  'if [ "$want_dsv41" = ON ] && [ ! -e "$repo/.git" ] && [ ! -f "$repo/BUILD_ID" ]; then\n'
+                  '  [ -n "${COMMIT:-}" ] || { echo "build_engine.sh: $repo has no .git and no BUILD_ID: set COMMIT=<hex> so the DeepSeek engine can print its commit" >&2; exit 2; }\n'
+                  '  printf "%s\\n" "$(printf "%s" "$COMMIT" | cut -c1-9)" > "$repo/BUILD_ID"\n'
+                  'fi\n'
+              )
+              s = s.replace(shape, shape + extra, 1)
+
+          old = '    -DSTRATA_MMQ=OFF "-DCMAKE_CUDA_ARCHITECTURES=${real};${last}-virtual" $ggml ${STRATA_CMAKE_EXTRA:-} $shape_cmake\n'
+          new = '    -DSTRATA_BUILD_DSV41="$want_dsv41" -DSTRATA_MMQ=OFF "-DCMAKE_CUDA_ARCHITECTURES=${real};${last}-virtual" $ggml ${STRATA_CMAKE_EXTRA:-} $shape_cmake\n'
+          if s.count(old) != 1:
+              raise SystemExit("event 0015: no-MMQ configure line changed")
+          s = s.replace(old, new, 1)
+
+          anchor = 'targets=$(engine_targets "$cmake" "$build")\n'
+          if s.count(anchor) != 1:
+              raise SystemExit("event 0015: target list anchor changed")
+          if 'targets="$targets strata-dsv41"' not in s:
+              s = s.replace(anchor, anchor + '[ "$want_dsv41" = ON ] && targets="$targets strata-dsv41"\n', 1)
+
+          anchor = 'cp "$build/strata" "$out/"\n'
+          if s.count(anchor) != 1:
+              raise SystemExit("event 0015: output copy anchor changed")
+          if 'cp "$build/strata-dsv41" "$out/"' not in s:
+              s = s.replace(anchor, anchor + '[ "$want_dsv41" = ON ] && [ -f "$build/strata-dsv41" ] && cp "$build/strata-dsv41" "$out/"\n', 1)
+
+          anchor = '"$out/strata" --version 2>/dev/null || true\n'
+          if s.count(anchor) != 1:
+              raise SystemExit("event 0015: version anchor changed")
+          if '"$out/strata-dsv41" --version' not in s:
+              s = s.replace(anchor, anchor + '[ "$want_dsv41" = ON ] && { "$out/strata-dsv41" --version 2>/dev/null || true; }\n', 1)
+
+          p.write_text(s, encoding="utf-8")
+
+          p = Path("packaging/build_cuda_linux_aarch64.sh")
+          s = p.read_text(encoding="utf-8")
+          if "dsv41=1; req=--require-dsv41" not in s:
+              raise SystemExit("event 0015: retained DSV41 packaging logic disappeared")
+          s = s.replace(
+              'then makes the package in $OUT (default ./out-engine-cuda13-aarch64):',
+              'then makes two packages in $OUT (default ./out-engine-cuda13-aarch64):',
+              1,
+          )
+          line = '#   <ver>-linux-aarch64-cuda-cuda13/       strata, strata-vision and the CUDA libraries (feed member "engine"; libstrata_kq.so only from an A/B build with -DSTRATA_MMQ=ON)\n'
+          if line in s:
+              s = s.replace(
+                  line,
+                  '#   <ver>-linux-aarch64-cuda-cuda13/       strata, strata-vision, strata-dsv41 and the CUDA libraries (feed member "engine"; libstrata_kq.so only from an A/B build with -DSTRATA_MMQ=ON)\n'
+                  '#   dsv41/<ver>-linux-aarch64-cuda-cuda13/ strata-dsv41 and the CUDA libraries (feed member "dsv41")\n',
+                  1,
+              )
+          p.write_text(s, encoding="utf-8")
+
+          p = Path("packaging/ENGINE-COMPONENT.md")
+          lines = p.read_text(encoding="utf-8").splitlines()
+          hits = [i for i, line in enumerate(lines)
+                  if line.startswith("|") and "linux-aarch64" in line and "NVIDIA DGX Spark" in line]
+          if len(hits) != 1:
+              raise SystemExit(f"event 0015: Spark component row count {len(hits)}")
+          i = hits[0]
+          bt = chr(96)
+          old = f"{bt}strata{bt}, {bt}strata-vision{bt}, cuBLAS"
+          new = f"{bt}strata{bt}, {bt}strata-vision{bt}, {bt}strata-dsv41{bt}, cuBLAS"
+          if old not in lines[i]:
+              raise SystemExit("event 0015: Spark component contents changed")
+          lines[i] = lines[i].replace(old, new, 1)
+          marker = "Driver 580.65 or newer"
+          lines[i] = lines[i].replace(
+              marker,
+              f"The script also emits a separate {bt}dsv41{bt} feed package with {bt}strata-dsv41{bt}. {marker}",
+              1,
+          )
+          p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+          git add spark/build_engine.sh packaging/build_cuda_linux_aarch64.sh packaging/ENGINE-COMPONENT.md
+          git commit -m "continuity-adapter: keep DSV41 in the Spark no-MMQ build and packages"             -m "Adapter-For-Upstream: 0112473047401ede9642a43bc60a458e2266912c"             -m "Continuity-Classification: R2-build-packaging-drift"             -m "Continuity-DS-Execution-Contract: unchanged-CUDA-cuBLAS"             -m "Continuity-Repairs-Latent-Adapter-Regression: event-0006"
+
+      - name: Strengthen continuity probe for Spark invariants
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("lab/tools/probe.sh")
+          s = p.read_text(encoding="utf-8")
+          if "[spark-dsv41]" not in s:
+              anchor = 'if [[ "$MODE" == "static" ]]; then\n'
+              if anchor not in s:
+                  raise SystemExit("probe static-mode anchor missing")
+              check = (
+                  'echo\n'
+                  'echo "[spark-dsv41] POSIX syntax and retained target/package invariants"\n'
+                  'sh -n spark/build_engine.sh\n'
+                  'sh -n packaging/build_cuda_linux_aarch64.sh\n'
+                  'if grep -Fq -- \'-DSTRATA_BUILD_DSV41="$want_dsv41"\' spark/build_engine.sh; then\n'
+                  '  grep -Fq \'want_dsv41=OFF;\' spark/build_engine.sh\n'
+                  '  grep -Fq \'targets="$targets strata-dsv41"\' spark/build_engine.sh\n'
+                  '  grep -Fq \'cp "$build/strata-dsv41" "$out/"\' spark/build_engine.sh\n'
+                  '  grep -Fq \'"$out/strata-dsv41" --version\' spark/build_engine.sh\n'
+                  'fi\n\n'
+              )
+              s = s.replace(anchor, check + anchor, 1)
+          p.write_text(s, encoding="utf-8")
+          PY
+          git add lab/tools/probe.sh
+          git commit -m "lab: enforce retained DSV41 Spark build invariants"
+
+      - name: Validate event 0015
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          bash lab/tools/probe.sh
+          python3 -m unittest tests.terminal.test_linux_aarch64 -v
+          python3 - <<'PY'
+          from pathlib import Path
+
+          s = Path("spark/build_engine.sh").read_text(encoding="utf-8")
+          assert '-DSTRATA_BUILD_DSV41="$want_dsv41" -DSTRATA_MMQ=OFF' in s
+          assert 'targets="$targets strata-dsv41"' in s
+          assert 'cp "$build/strata-dsv41" "$out/"' in s
+          assert 'want_dsv41=OFF;' in s
+
+          p = Path("packaging/build_cuda_linux_aarch64.sh").read_text(encoding="utf-8")
+          for needle in (
+              'BUILD_DSV41=$dsv41 sh spark/build_engine.sh',
+              '--require-dsv41',
+              'cp "$stage/engine/strata-dsv41"',
+              '--entrypoint strata-dsv41',
+          ):
+              assert needle in p, needle
+
+          ds = Path("src/dsv41/ds4_model.cu").read_text(encoding="utf-8")
+          assert "#if defined(STRATA_USE_HIP)" in ds
+          assert "strata_pf_gemm_f16_ld" in ds
+          assert "cublasGemmEx" in ds
+          print("event 0015 Spark no-MMQ + retained DSV41 invariants PASS")
+          PY
+
+      - name: Publish verified event 0015 checkpoint
+        if: steps.reproduce.outputs.rc == '10'
+        run: git push --force origin HEAD:continuity
+
+      - name: Fail if event shape changed
+        if: steps.reproduce.outputs.rc != '10'
+        run: |
+          echo "Expected event 0015 conflict rc=10, got ${{ steps.reproduce.outputs.rc }}"
+          exit 1
