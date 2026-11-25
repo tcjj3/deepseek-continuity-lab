@@ -142,15 +142,16 @@ jobs:
 
           p = Path("packaging/build_cuda_linux_aarch64.sh")
           s = p.read_text(encoding="utf-8")
-          insert_after = 'shape_pkg=\n[ -n "${SHAPE:-}" ] && shape_pkg="--package $SHAPE"\n'
-          if insert_after not in s:
-              raise SystemExit("event 0017: ARM64 shape anchor changed")
-          if "dsv41=1; req=--require-dsv41" not in s:
-              dsv = (
-                  'dsv41=1; req=--require-dsv41\n'
-                  'if [ -n "${SHAPE:-}" ]; then dsv41=0; req=$shape_pkg; fi\n'
+          shape_block = 'req=""\nif [ -n "${SHAPE:-}" ]; then req=$shape_pkg; fi\n'
+          if shape_block not in s:
+              raise SystemExit("event 0017: ARM64 req/shape block changed")
+          if "dsv41=1;" not in s:
+              replacement = (
+                  'req=""\n'
+                  'dsv41=1\n'
+                  'if [ -n "${SHAPE:-}" ]; then req=$shape_pkg; dsv41=0; fi\n'
               )
-              s = s.replace(insert_after, insert_after + dsv, 1)
+              s = s.replace(shape_block, replacement, 1)
 
           old = 'OUT=$stage/engine BUILD_VISION=${BUILD_VISION:-1} sh spark/build_engine.sh\n'
           new = 'OUT=$stage/engine BUILD_VISION=${BUILD_VISION:-1} BUILD_DSV41=$dsv41 sh spark/build_engine.sh\n'
@@ -166,9 +167,16 @@ jobs:
           i = s.find(pkg_anchor)
           if i < 0:
               raise SystemExit("event 0017: main package command missing")
-          if "$req" not in s[i:i+1200]:
-              # add the continuity requirement to the continuation that already carries shape_pkg
-              s = s.replace('$shape_pkg\n', '$shape_pkg $req\n', 1)
+          # Require DSV41 in the main engine package when the continuity
+          # build includes it; shape packages intentionally omit DSV41.
+          if "$req" in s[i:i+1200]:
+              s = s.replace(
+                  '    --min-driver nvidia=$mindriver --variant cuda13 --platform linux-aarch64 --build-id "$id" $req \\\n',
+                  '    --min-driver nvidia=$mindriver --variant cuda13 --platform linux-aarch64 --build-id "$id" $req \\\n',
+                  1,
+              )
+          else:
+              raise SystemExit("event 0017: main package req hook disappeared")
 
           if 'cp "$stage/engine/strata-dsv41"' not in s:
               marker = 'for d in "$out"/*/; do\n'
