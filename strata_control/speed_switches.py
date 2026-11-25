@@ -48,6 +48,13 @@ SWITCHES: tuple[Switch, ...] = (
            "Shares the work between the graphics card and the processor in a way that makes answers faster on these cards. "
            "Turn off to go back to the previous setting, which is slower.",
            (("STRATA_PCIE_FRAC_DEFAULT", "old"),), "qwen-radeon-9000"),
+    Switch("deepseek_speedups", "DeepSeek speed-ups",
+           "Reads long prompts faster and loads the parts of the model it needs faster. "
+           "Turn off if DeepSeek stops working or its answers look wrong; it then runs as in version 0.2.6.",
+           (("DS4_DEFAULTS", "026"), ("DS4_FAST_ATTN", "0"), ("DS4_ATTN_SLAB", "0"), ("DS4_COPY_PIN", "0"), ("DS4_COPY_HUGETLB", "0"),
+            ("DS4_STORE_SPARE", "0"), ("DS4_STORE_PUT", "0")), "deepseek",
+           legacy=(("DS4_FAST_ATTN", "0"), ("DS4_ATTN_SLAB", "0"), ("DS4_COPY_PIN", "0"), ("DS4_COPY_HUGETLB", "0"),
+                   ("DS4_STORE_SPARE", "0"), ("DS4_STORE_PUT", "0"))),
     # (0.2.16: the "Picture reader" row, STRATA_VISION_TOWER=mtmd for llama.cpp's reader, is gone with llama.cpp's reader itself: Strata's own reader is the
     # only one.  A run config that still carries the entry starts as before; strata-vision no longer reads the name.)
     # Troubleshooting only, in the Terminal's Advanced table and nowhere else: every Qwen 0.2.7 default back to its 0.2.6 behaviour.

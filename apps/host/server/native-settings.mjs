@@ -56,7 +56,8 @@ const smallNvidia=gpus=>(gpus??[]).some(g=>{
  return g.vram_gb>0&&g.vram_gb<=13;
 });
 export function speedSwitchApplies(id,{deepseek=false,backend=null,gpus=[],arch=null,vision=false}={}){
- if(deepseek)return false;                                              // a DeepSeek settings file (no longer run): no switch
+ if(id==='deepseek_speedups')return !!deepseek;
+ if(deepseek)return false;                                              // retained DeepSeek gets no Qwen switch
  if(id==='faster_long_prompts')return !arch&&(backend==='cuda'||backend==='hip');
  if(id==='faster_12gb_nvidia')return !arch&&backend==='cuda'&&smallNvidia(gpus);   // the engine's routing needs the Flash-Next shape (512 experts, top-10) and a CUDA build
  if(id==='faster_radeon_9000')return backend==='hip'&&(gpus??[]).some(g=>(!g.vendor||g.vendor==='amd')&&(GFX12.test(String(g.arch??''))||(!g.arch&&RADEON_9000.test(String(g.name??'')))));
