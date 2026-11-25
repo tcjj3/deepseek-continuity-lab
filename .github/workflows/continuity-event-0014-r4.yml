@@ -67,8 +67,8 @@ jobs:
           theirs = "".join(lines[b + 1:z])
           if "DeepSeek CPU lane" not in ours or "STRATA_OWN_CPU_QUANT" not in ours:
               raise SystemExit("event 0014: continuity side is not the retained DSV41 quant contract")
-          if "ON by default since 0.2.16" not in theirs or "if(NOT STRATA_OWN_CPU_QUANT OR STRATA_BUILD_TESTS)" not in theirs:
-              raise SystemExit("event 0014: upstream side is not the ggml-out Metal migration")
+          if "ON by default since 0.2.16" not in theirs or 'option(STRATA_OWN_CPU_QUANT' not in theirs:
+              raise SystemExit("event 0014: upstream side is not the Metal own-quant default migration")
           lines[a:z + 1] = lines[b + 1:z]
           p.write_text("".join(lines), encoding="utf-8")
           PY
