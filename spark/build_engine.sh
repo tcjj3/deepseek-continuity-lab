@@ -44,6 +44,13 @@ case "$cudafull" in
   *) echo "build_engine.sh: needs the CUDA 13 toolkit (nvcc here: ${cudafull:-missing})" >&2; exit 2 ;;
 esac
 . "$repo/packaging/shape_build.sh"; shape_setup "$repo"
+# the commit the DeepSeek engine prints with --version: a checkout gives it to CMake itself; a tree copy without .git needs COMMIT=<hex>
+dsv41_default=1; [ -n "${SHAPE:-}" ] && dsv41_default=0
+want_dsv41=OFF; [ "${BUILD_DSV41:-$dsv41_default}" = 1 ] && want_dsv41=ON
+if [ "$want_dsv41" = ON ] && [ ! -e "$repo/.git" ] && [ ! -f "$repo/BUILD_ID" ]; then
+  [ -n "${COMMIT:-}" ] || { echo "build_engine.sh: $repo has no .git and no BUILD_ID: set COMMIT=<hex> so the DeepSeek engine can print its commit" >&2; exit 2; }
+  printf "%s\n" "$(printf "%s" "$COMMIT" | cut -c1-9)" > "$repo/BUILD_ID"
+fi
 
 real=""; for a in $(echo "$archs" | tr ';,' '  '); do real="$real;${a}-real"; done; real=${real#;}
 last=$(echo "$archs" | tr ';,' '  ' | awk '{print $NF}')
@@ -51,7 +58,7 @@ cd "$repo"
 "$cmake" -G Ninja -S . -B "$build" -DCMAKE_BUILD_TYPE=Release -DSTRATA_ENABLE_CUDA=ON -DSTRATA_BUILD_TESTS=OFF \
     -DSTRATA_NATIVE_EXPERTS=ON -DSTRATA_PORTABLE=ON -DSTRATA_Q6K_EXPERTS=ON -DSTRATA_MMQ_KQUANTS=ON \
     -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DCMAKE_SKIP_BUILD_RPATH=OFF '-DCMAKE_INSTALL_RPATH=$ORIGIN' \
-    -DSTRATA_MMQ=OFF "-DCMAKE_CUDA_ARCHITECTURES=${real};${last}-virtual" $ggml ${STRATA_CMAKE_EXTRA:-} $shape_cmake
+    -DSTRATA_BUILD_DSV41="$want_dsv41" -DSTRATA_MMQ=OFF "-DCMAKE_CUDA_ARCHITECTURES=${real};${last}-virtual" $ggml ${STRATA_CMAKE_EXTRA:-} $shape_cmake
 # without llama.cpp's MMQ, as the x86 release builds since 0.2.14 (named here: a build folder configured before keeps ON in its cache).
 # Such a build turns Strata's fused prompt kernels on for every layer they cover (src/prefill/prefill.cpp, own_only_switches.hpp), on the
 # GB10 too: IQ3_S, UD-IQ4_XS and UD-Q4_K_XL ran 48 of 48 layers on them on a GB10 (par/RESULTS-SPARK-R1.md, 11-14 / 11-15), the rest
@@ -62,6 +69,7 @@ cd "$repo"
 # path (A/B runs)
 . "$repo/packaging/engine_targets.sh"
 targets=$(engine_targets "$cmake" "$build")
+[ "$want_dsv41" = ON ] && targets="$targets strata-dsv41"
 # shellcheck disable=SC2086
 "$cmake" --build "$build" --target $targets -j "$jobs"
 
@@ -79,6 +87,7 @@ ver=$(sed -n 's/^[[:space:]]*project([^)]*VERSION[[:space:]]*\([0-9][0-9.]*\).*/
 rm -rf "$out"
 mkdir -p "$out"
 cp "$build/strata" "$out/"
+[ "$want_dsv41" = ON ] && [ -f "$build/strata-dsv41" ] && cp "$build/strata-dsv41" "$out/"
 [ -f "$build/libstrata_kq.so" ] && cp "$build/libstrata_kq.so" "$out/"
 vision_json=""
 if [ "${BUILD_VISION:-1}" = 1 ] && [ -f "$vision_dir/bin/strata-vision" ]; then
@@ -89,4 +98,5 @@ fi
 "$py" packaging/collect_libs.py --binary "$build/strata" --search /usr/local/cuda/lib64 --out "$out" --also 'libcublasLt.so*'
 echo "{\"version\": \"$ver\", \"source\": \"spark/build_engine.sh\", \"platform\": \"linux-aarch64\", \"archs\": \"$archs\", \"ptx\": true, \"cuda\": \"$cudafull\", \"portable\": true$vision_json}" > "$out/BUILD.json"
 "$out/strata" --version 2>/dev/null || true
+[ "$want_dsv41" = ON ] && { "$out/strata-dsv41" --version 2>/dev/null || true; }
 echo "built: $out"
