@@ -1,0 +1,179 @@
+name: Continuity Resume Event 0013
+
+on:
+  push:
+    paths:
+      - ".github/workflows/continuity-event-0013.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  event0013:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout continuity checkpoint
+        uses: actions/checkout@v4
+        with:
+          ref: continuity
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "continuity-trial"
+          git config user.email "continuity-trial@invalid.local"
+
+      - name: Confirm event 0012 checkpoint
+        run: |
+          git log -80 --format=%B | grep -F "Upstream-Commit: f5ef26889a38367e1b659ca74585688ba4719a34"
+          bash lab/tools/probe.sh
+
+      - name: Replay four clean integrations after event 0012
+        run: python3 lab/tools/replay_upstream.py --max 4
+
+      - name: Reproduce event 0013
+        id: reproduce
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py --max 1 2>&1 | tee /tmp/event0013-reproduce.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Resolve event 0013 upstream-first at three conflict hunks
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          test "$(git diff --name-only --diff-filter=U)" = "apps/host/server/native-control.mjs"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("apps/host/server/native-control.mjs")
+          lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+          seen = 0
+          while True:
+              a = next((i for i, x in enumerate(lines) if x.startswith("<<<<<<< HEAD")), None)
+              if a is None:
+                  break
+              b = next((i for i in range(a + 1, len(lines)) if lines[i].startswith("=======")), None)
+              z = next((i for i in range((b or a) + 1, len(lines)) if lines[i].startswith(">>>>>>>")), None)
+              if b is None or z is None:
+                  raise SystemExit("event 0013: incomplete conflict markers")
+              ours = "".join(lines[a + 1:b])
+              theirs = "".join(lines[b + 1:z])
+              if seen == 0 and "MTP_OFFLINE_NOTE" not in theirs:
+                  raise SystemExit("event 0013 hunk 1 is not the offline-note addition")
+              if seen == 1 and ("deepseek41" not in ours or "'mtp'" not in theirs):
+                  raise SystemExit("event 0013 hunk 2 is not installArgs DS/upstream composition")
+              if seen == 2 and ("dsNote" not in ours or "MTP_OFFLINE_NOTE" not in theirs):
+                  raise SystemExit("event 0013 hunk 3 is not load-note composition")
+              lines[a:z + 1] = lines[b + 1:z]
+              seen += 1
+          if seen != 3:
+              raise SystemExit(f"event 0013: expected 3 conflict hunks, got {seen}")
+          p.write_text("".join(lines), encoding="utf-8")
+          PY
+          git add -A
+          git commit -m "app: Drafting Off fetches no draft layer; the offline note only when no drafter runs" \
+            -m "Upstream-Commit: b2d08647c5cf769798c9644328d5bde283f71f22" \
+            -m "Continuity-Lab: deepseek-retained" \
+            -m "Continuity-Conflict-Resolution: upstream-first-at-conflict-hunks"
+
+      - name: Apply continuity adapter 0013
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("apps/host/server/native-control.mjs")
+          s = p.read_text(encoding="utf-8")
+
+          # DeepSeek picture capability is part of its own pack; no explicit app
+          # choice must not become the generic install default vision:no.
+          generic = "...(packaged&&args.vision===undefined?{vision:'no'}:{}),confirm"
+          retained = "...(packaged&&args.vision===undefined&&args.family!=='deepseek41'?{vision:'no'}:{}),confirm"
+          if s.count(generic) != 1:
+              raise SystemExit(f"event 0013: expected one generic vision default, got {s.count(generic)}")
+          s = s.replace(generic, retained, 1)
+
+          # Keep the retained DeepSeek load note while accepting upstream's new
+          # offline-note cleanup around the same buildConfig call.
+          generic = "parallelChoice,parallelNote:chosenNote}=buildConfig("
+          retained = "parallelChoice,parallelNote:chosenNote,dsNote}=buildConfig("
+          if s.count(generic) != 1:
+              raise SystemExit(f"event 0013: expected one buildConfig destructure, got {s.count(generic)}")
+          s = s.replace(generic, retained, 1)
+
+          if "if(dsNote)append(id,dsNote);" not in s:
+              raise SystemExit("event 0013: retained dsNote consumer disappeared")
+          p.write_text(s, encoding="utf-8")
+          PY
+          git add apps/host/server/native-control.mjs
+          git commit -m "continuity-adapter: compose DeepSeek native-control state with Drafting Off" \
+            -m "Adapter-For-Upstream: b2d08647c5cf769798c9644328d5bde283f71f22" \
+            -m "Continuity-Classification: R3-app-native-control-config-drift" \
+            -m "Continuity-DS-Logical-Updates: vision-default,ds-load-note"
+
+      - name: Validate event 0013
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          bash lab/tools/probe.sh
+          node --check apps/host/server/native-control.mjs
+          node --test apps/host/tests/fix0215-drafting-off.test.mjs apps/host/tests/drafting.test.mjs
+          node --test apps/host/tests/native-ds-args.test.mjs apps/host/tests/native-ds-parallel.test.mjs
+          python3 -m unittest tools.test_strata_mcp -v
+          node - <<'JS'
+          const fs = require("node:fs");
+          const s = fs.readFileSync("apps/host/server/native-control.mjs", "utf8");
+          if (!s.includes("args.vision===undefined&&args.family!=='deepseek41'")) throw new Error("DeepSeek install vision exception missing");
+          if (!s.includes("parallelNote:chosenNote,dsNote}=buildConfig(")) throw new Error("DeepSeek load note destructure missing");
+          if (!s.includes("if(dsNote)append(id,dsNote);")) throw new Error("DeepSeek load note consumer missing");
+          console.log("event 0013 DeepSeek native-control continuity PASS");
+          JS
+
+      - name: Publish verified event 0013 checkpoint
+        if: steps.reproduce.outputs.rc == '10'
+        run: git push --force origin HEAD:continuity
+
+      - name: Continue until next failure
+        if: steps.reproduce.outputs.rc == '10'
+        id: continue
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py 2>&1 | tee /tmp/after-event0013.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Diagnose next failure
+        if: always() && steps.continue.outcome != 'skipped'
+        run: |
+          echo "---- replay rc ----"
+          echo "${{ steps.continue.outputs.rc }}"
+          echo "---- HEAD ----"
+          git log -1 --format=fuller || true
+          echo "---- status ----"
+          git status --short || true
+          echo "---- unmerged ----"
+          git diff --name-only --diff-filter=U || true
+          echo "---- index stages ----"
+          git ls-files -u || true
+          for f in $(git diff --name-only --diff-filter=U); do
+            echo "===== COMBINED DIFF: $f ====="
+            git diff --cc -- "$f" || true
+            echo "===== MARKERS: $f ====="
+            grep -n -B65 -A190 "<<<<<<<" "$f" || true
+          done
+          echo "---- last 750 lines ----"
+          tail -n 750 /tmp/after-event0013.log || true
+
+      - name: Mark next failure
+        if: steps.continue.outputs.rc != '' && steps.continue.outputs.rc != '0'
+        run: exit 1
+
+      - name: Fail if event 0013 shape changed
+        if: steps.reproduce.outputs.rc != '10'
+        run: |
+          echo "Expected event 0013 conflict rc=10, got ${{ steps.reproduce.outputs.rc }}"
+          exit 1
