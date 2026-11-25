@@ -260,6 +260,34 @@ jobs:
           git add apps/host/tests/policy-generated.test.mjs                   apps/host/tests/speed-switches.test.mjs                   tests/terminal/test_speed_switches.py
           git commit -m "continuity-adapter: keep DeepSeek policy tests while adopting the own-vision policy"
 
+      - name: Strengthen continuity probe for HIP DSV41 own-vision invariants
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("lab/tools/probe.sh")
+          s = p.read_text(encoding="utf-8")
+          if "[hip-dsv41]" not in s:
+              anchor = 'if [[ "$MODE" == "static" ]]; then\n'
+              if anchor not in s:
+                  raise SystemExit("probe static-mode anchor missing")
+              check = (
+                  'echo\n'
+                  'echo "[hip-dsv41] own-vision packaging invariants"\n'
+                  'bash -n packaging/build_hip_linux.sh\n'
+                  'grep -Fq -- \'-DSTRATA_BUILD_DSV41=ON\' packaging/build_hip_linux.sh\n'
+                  'grep -Fq \'strata-dsv41\' packaging/build_hip_linux.sh\n'
+                  'if grep -Fq -- \'-DLLAMA_DIR=\' packaging/build_hip_linux.sh; then\n'
+                  '  echo "unexpected legacy LLAMA_DIR in HIP own-vision build" >&2\n'
+                  '  exit 23\n'
+                  'fi\n\n'
+              )
+              s = s.replace(anchor, check + anchor, 1)
+          p.write_text(s, encoding="utf-8")
+          PY
+          git add lab/tools/probe.sh
+          git commit -m "lab: enforce retained DSV41 HIP own-vision invariants"
+
       - name: Validate own-vision plus retained DSV41
         if: steps.reproduce.outputs.rc == '10'
         run: |
@@ -274,7 +302,7 @@ jobs:
           python3 -m unittest tests.terminal.test_app_policy tests.terminal.test_speed_switches -v
           npm --prefix apps/host ci --no-audit --no-fund
           node --test apps/host/tests/policy-generated.test.mjs apps/host/tests/speed-switches.test.mjs
-          node --test apps/host/tests/native-ds-args.test.mjs apps/host/tests/load-pictures.test.mjs
+          (cd apps/host && node --test tests/native-ds-args.test.mjs tests/load-pictures.test.mjs)
           python3 - <<'PY'
           from pathlib import Path
           p = Path("apps/host/server/policy-generated.mjs").read_text(encoding="utf-8")
