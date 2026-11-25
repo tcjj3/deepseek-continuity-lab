@@ -2663,6 +2663,7 @@ class Runner:
     def plan(self) -> dict:
         s = self.s
         self.keep_saved_off()                                # the plan names the drafter the start will run
+        self.keep_saved_word()
         self.check_own_files()
         warns = [n.line() for n in (*S.check_access(s),)]
         warns += self.preflight_words()
@@ -2811,6 +2812,29 @@ class Runner:
             if path is not None and read_config(path).get("drafting") is not None:
                 return
             s.drafting = "off"
+        except Exception:                                    # noqa: BLE001 - an unreadable file keeps the launch as it was
+            return
+
+    def keep_saved_word(self) -> None:
+        """A launch without a Drafting word keeps a saved "auto" as "auto" (boxia d3d and l620 C2, 0.2.14.1: the restart with no word wrote null into the launch's
+        records where "auto" was; it still ran DFlash2, because null is Auto everywhere: drafting.normalize, the app's `drafting ?? 'auto'`, setup, the server).
+        Only where the two mean the same start: not when the model's installed config holds a Drafting choice of its own (the app's Models screen; null lets it
+        decide, an "auto" would override it) or its draft layer is switched off with no choice (null reads that as no drafter; an "auto" would fetch the layer
+        again). Off is keep_saved_off's and is never touched here; MTP and DFlash2 are not carried over (a start with no word is Auto, as before)."""
+        s = self.s
+        if s.drafting is not None:
+            return
+        try:
+            from strata_control import drafting
+            prev = read_config(launch_dir() / f"{self.name}.json")
+            word = prev.get("drafting") if isinstance(prev, dict) else None
+            if not isinstance(word, str) or word.strip().lower() != "auto":
+                return
+            path = self.catalog.installed_config(self.catalog.tag_of(s.family, s.model))
+            installed = read_config(path) if path is not None else {}
+            if isinstance(installed, dict) and (installed.get("drafting") is not None or installed.get("mtp") is False):
+                return
+            s.drafting = drafting.DEFAULT_MODE
         except Exception:                                    # noqa: BLE001 - an unreadable file keeps the launch as it was
             return
 
@@ -2981,6 +3005,7 @@ class Runner:
     def run(self, *, start: bool = True) -> Result:
         self.restart_after = start
         self.keep_saved_off()
+        self.keep_saved_word()                               # a restart with no word keeps the saved one (it was written as null before)
         try:
             self.check_own_files()                         # a wrong --model-path is said before the engine is downloaded
             if start:
