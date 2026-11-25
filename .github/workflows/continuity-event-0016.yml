@@ -264,7 +264,7 @@ jobs:
         if: steps.reproduce.outputs.rc == '10'
         run: |
           bash lab/tools/probe.sh
-          sh -n packaging/build_hip_linux.sh
+          bash -n packaging/build_hip_linux.sh
           grep -Fq -- '-DSTRATA_BUILD_DSV41=ON' packaging/build_hip_linux.sh
           grep -Fq 'strata-dsv41' packaging/build_hip_linux.sh
           ! grep -Fq -- '-DLLAMA_DIR=' packaging/build_hip_linux.sh
