@@ -54,3 +54,36 @@ Measured compatibility cost:
 The static DSV41 continuity probe passed after the adapter.
 
 A verified checkpoint containing events 0001–0006 is published on branch `continuity`.
+
+
+## Post-audit correction discovered at event 0015
+
+The original event-0006 result overstated the strength of its Spark verification.
+
+Its upstream-first conflict resolution preserved the new MMQ setting but accidentally
+discarded several already-verified DSV41 Spark integration lines from event 0005:
+
+- the `dsv41_default / want_dsv41` initialization;
+- appending `strata-dsv41` to the centralized build target list;
+- copying the built DSV41 executable into the Spark output folder;
+- the DSV41 `--version` smoke check.
+
+The event-0006 adapter then re-added only:
+
+`-DSTRATA_BUILD_DSV41="$want_dsv41"`
+
+which left `want_dsv41` undefined under the script's `set -u`. The static continuity
+probe did not execute this platform-specific script and therefore missed the defect.
+
+This is a **continuity-adapter / measurement regression**, not evidence that upstream
+made DSV41 incompatible. Event 0015 restores the complete Spark DSV41 invariant while
+moving the upstream build to MMQ=OFF, and strengthens the probe with POSIX syntax plus
+target/copy/version assertions.
+
+Accordingly:
+
+- the **R2 nature** of event 0006 remains valid;
+- its old statement that the Spark path was fully verified is superseded by the
+  event-0015 audit;
+- the latent defect is excluded from upstream compatibility cost but retained in the
+  experiment record.

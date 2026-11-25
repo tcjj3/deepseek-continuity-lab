@@ -56,3 +56,18 @@ The lab intentionally keeps upstream GitHub workflow YAMLs inert outside `.githu
 - shared execution-contract changes: **0**
 
 Static DSV41 continuity probe passed after the adapter.
+
+
+## Later continuity-audit correction
+
+Event 0015 exposed a measurement defect in the *subsequent* event 0006 replay: the
+event-0005 adapter itself correctly added `strata-dsv41` to the centralized target
+list, but event 0006's upstream-first conflict resolution later replaced the
+surrounding Spark block and silently dropped this target-list line together with other
+pre-existing DSV41 Spark integration.
+
+Therefore the event-0005 classification remains **R2** and the adapter was technically
+correct at this checkpoint. Its persistence was not adequately protected by the probe.
+
+Event 0015 restores the full invariant and adds a permanent Spark-DVS41 probe so this
+class of adapter regression is detected immediately.
