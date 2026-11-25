@@ -1,0 +1,312 @@
+name: Continuity Resume Event 0016
+
+on:
+  push:
+    paths:
+      - ".github/workflows/continuity-event-0016.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  event0016:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout continuity checkpoint
+        uses: actions/checkout@v4
+        with:
+          ref: continuity
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "continuity-trial"
+          git config user.email "continuity-trial@invalid.local"
+
+      - name: Confirm clean predecessor
+        run: |
+          git log -180 --format=%B | grep -F "Upstream-Commit: 0112473047401ede9642a43bc60a458e2266912c"
+          bash lab/tools/probe.sh
+
+      - name: Reproduce event 0016
+        id: reproduce
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py --max 1 2>&1 | tee /tmp/event0016.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Resolve own-vision migration upstream-first
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          expected = {
+              "apps/host/server/native-settings.mjs",
+              "apps/host/server/policy-generated.mjs",
+              "apps/host/tests/data/policy-vectors.json",
+              "apps/host/tests/policy-generated.test.mjs",
+              "apps/host/tests/speed-switches.test.mjs",
+              "docs/DETAILS.md",
+              "packaging/build_hip_linux.sh",
+              "strata_control/speed_switches.py",
+              "tests/terminal/test_speed_switches.py",
+          }
+          got = set(subprocess.check_output(
+              ["git", "diff", "--name-only", "--diff-filter=U"], text=True
+          ).split())
+          if got != expected:
+              raise SystemExit(f"event 0016 conflict set changed: {sorted(got)}")
+
+          for name in sorted(expected):
+              p = Path(name)
+              if p.suffix == ".json":
+                  subprocess.check_call(["git", "checkout", "--theirs", "--", name])
+                  continue
+              lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+              n = 0
+              while True:
+                  a = next((i for i, x in enumerate(lines) if x.startswith("<<<<<<< HEAD")), None)
+                  if a is None:
+                      break
+                  b = next((i for i in range(a + 1, len(lines)) if lines[i].startswith("=======")), None)
+                  z = next((i for i in range((b or a) + 1, len(lines)) if lines[i].startswith(">>>>>>>")), None)
+                  if b is None or z is None:
+                      raise SystemExit(f"incomplete markers in {name}")
+                  lines[a:z + 1] = lines[b + 1:z]
+                  n += 1
+              if n == 0:
+                  raise SystemExit(f"no conflict hunk resolved in {name}")
+              p.write_text("".join(lines), encoding="utf-8")
+          PY
+          git add -A
+          git commit -m "Merge f-0216-vision: strata-vision is Strata own picture reader on every backend"             -m "Upstream-Commit: e2f859f0bd4fcf0fcf61093c9e83b85eaf9f93f3"             -m "Continuity-Lab: deepseek-retained"             -m "Continuity-Conflict-Resolution: upstream-own-vision-first"
+
+      - name: Restore only retained DeepSeek semantics
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # Python source of truth: retain the DSV41 speed switch, but NOT the
+          # removed Qwen picture-reader fallback.
+          p = Path("strata_control/speed_switches.py")
+          s = p.read_text(encoding="utf-8")
+          anchor = '    # (0.2.16: the "Picture reader" row'
+          if s.count(anchor) != 1:
+              raise SystemExit("speed-switch insertion anchor changed")
+          ds = '''    Switch("deepseek_speedups", "DeepSeek speed-ups",
+           "Reads long prompts faster and loads the parts of the model it needs faster. "
+           "Turn off if DeepSeek stops working or its answers look wrong; it then runs as in version 0.2.6.",
+           (("DS4_DEFAULTS", "026"), ("DS4_FAST_ATTN", "0"), ("DS4_ATTN_SLAB", "0"), ("DS4_COPY_PIN", "0"), ("DS4_COPY_HUGETLB", "0"),
+            ("DS4_STORE_SPARE", "0"), ("DS4_STORE_PUT", "0")), "deepseek",
+           legacy=(("DS4_FAST_ATTN", "0"), ("DS4_ATTN_SLAB", "0"), ("DS4_COPY_PIN", "0"), ("DS4_COPY_HUGETLB", "0"),
+                   ("DS4_STORE_SPARE", "0"), ("DS4_STORE_PUT", "0"))),
+'''
+          if 'Switch("deepseek_speedups"' not in s:
+              s = s.replace(anchor, ds + anchor, 1)
+
+          anchor = 'def _radeon_9000('
+          helper = '''def is_deepseek(cfg: Mapping[str, Any] | None) -> bool:
+    cfg = cfg or {}
+    return cfg.get("arch") == "deepseek41" or bool(re.search(r"strata-dsv41", str(cfg.get("exe") or ""), re.IGNORECASE))
+
+
+'''
+          if "def is_deepseek(" not in s:
+              s = s.replace(anchor, helper + anchor, 1)
+
+          old = '''    from strata_control import retired
+    if retired.config_reason(cfg):                   # a DeepSeek config (strata_control/retired.py): this Strata does not run it
+        return False
+    if sw.only == "qwen-any":
+'''
+          new = '''    if sw.only == "deepseek":
+        return is_deepseek(cfg)
+    if is_deepseek(cfg):
+        return False
+    if sw.only == "qwen-any":
+'''
+          if old not in s:
+              raise SystemExit("upstream retired-policy block changed")
+          s = s.replace(old, new, 1)
+          p.write_text(s, encoding="utf-8")
+
+          # App rule: retained DeepSeek gets its own switch; it never gets Qwen
+          # switches. The removed picture_reader rule stays removed.
+          p = Path("apps/host/server/native-settings.mjs")
+          s = p.read_text(encoding="utf-8")
+          old = " if(deepseek)return false;                                              // a DeepSeek settings file (no longer run): no switch"
+          new = " if(id==='deepseek_speedups')return !!deepseek;\n if(deepseek)return false;                                              // retained DeepSeek gets no Qwen switch"
+          if old not in s:
+              raise SystemExit("native-settings DeepSeek rule changed")
+          s = s.replace(old, new, 1)
+          # Retained DS4 environment entries remain editable in continuity.
+          s = s.replace(
+              "/** Engine environment names the app shows and edits: STRATA_*. Any other name in a model's file is kept untouched and not shown. */\nexport const ENV_FLAG=/^STRATA_[A-Z0-9_]+$/;",
+              "/** Engine environment names the app shows and edits: STRATA_* and retained DeepSeek DS4_*. */\nexport const ENV_FLAG=/^(?:STRATA|DS4)_[A-Z0-9_]+$/;",
+              1,
+          )
+          p.write_text(s, encoding="utf-8")
+
+          # Retain the license notice for the separate DeepSeek Metal vision
+          # implementation; remove only llama.cpp/mtmd from the generic reader.
+          p = Path("docs/DETAILS.md")
+          s = p.read_text(encoding="utf-8")
+          notice = "- [antirez/ds4](https://github.com/antirez/ds4) (MIT, commit 890898cf): the Metal vision-tower kernels of the Mac DeepSeek engine (metal/src/engine/msl/ds4_vision.metal, ds4_vision_metal.cpp) follow its metal/deepseek4_vision.metal and the tower's host code. See third_party/antirez-ds4/NOTICE.md.\n"
+          if "antirez/ds4" not in s:
+              marker = "- Ideas from [Splash]"
+              if marker not in s:
+                  raise SystemExit("DETAILS license anchor changed")
+              s = s.replace(marker, notice + marker, 1)
+          p.write_text(s, encoding="utf-8")
+          PY
+
+          # Regenerate the app policy and vectors from the patched Python source.
+          python3 -m strata_control.app_policy
+
+          git add strata_control/speed_switches.py                   apps/host/server/native-settings.mjs                   apps/host/server/policy-generated.mjs                   apps/host/tests/data/policy-vectors.json                   docs/DETAILS.md
+          git commit -m "continuity-adapter: separate retained DeepSeek switches from the removed picture-reader fallback"             -m "Adapter-For-Upstream: e2f859f0bd4fcf0fcf61093c9e83b85eaf9f93f3"             -m "Continuity-Classification: R3-policy-separation-plus-R2-packaging"             -m "Continuity-Removed: picture_reader,STRATA_VISION_TOWER-mtmd,llama-vision-fallback"             -m "Continuity-Retained: deepseek_speedups,DS4-env,DSV41-HIP-package,DS4-Metal-vision"
+
+      - name: Adapt policy tests to retained DeepSeek plus new own-vision world
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("apps/host/tests/policy-generated.test.mjs")
+          s = p.read_text(encoding="utf-8")
+          s = s.replace(
+              "['faster_long_prompts', 'faster_12gb_nvidia', 'faster_radeon_9000']",
+              "['faster_long_prompts', 'faster_12gb_nvidia', 'faster_radeon_9000', 'deepseek_speedups']",
+              1,
+          )
+          p.write_text(s, encoding="utf-8")
+
+          p = Path("apps/host/tests/speed-switches.test.mjs")
+          s = p.read_text(encoding="utf-8")
+          env_anchor = "  faster_radeon_9000: { STRATA_PCIE_FRAC_DEFAULT: 'old' },\n"
+          ds_env = "  deepseek_speedups: { DS4_DEFAULTS: '026', DS4_FAST_ATTN: '0', DS4_ATTN_SLAB: '0', DS4_COPY_PIN: '0', DS4_COPY_HUGETLB: '0', DS4_STORE_SPARE: '0', DS4_STORE_PUT: '0' },\n"
+          if ds_env not in s:
+              s = s.replace(env_anchor, env_anchor + ds_env, 1)
+          s = s.replace(
+              "const DEFAULT = { faster_long_prompts: 'off', faster_12gb_nvidia: 'off', faster_radeon_9000: 'on' };",
+              "const SIX = ['DS4_FAST_ATTN', 'DS4_ATTN_SLAB', 'DS4_COPY_PIN', 'DS4_COPY_HUGETLB', 'DS4_STORE_SPARE', 'DS4_STORE_PUT'];\nconst DEFAULT = { faster_long_prompts: 'off', faster_12gb_nvidia: 'off', faster_radeon_9000: 'on', deepseek_speedups: 'on' };",
+              1,
+          )
+          s = s.replace(
+              "assert.deepEqual(ids({ deepseek: true, backend: 'cuda', gpus: [RTX3060] }), [], 'a DeepSeek settings file (no longer run): no switch');",
+              "assert.deepEqual(ids({ deepseek: true, backend: 'cuda', gpus: [RTX3060] }), ['deepseek_speedups']);",
+              1,
+          )
+          s = s.replace(
+              "assert.deepEqual(ids({ deepseek: true, backend: 'hip', gpus: [R9700] }), [], 'a DeepSeek settings file (no longer run): no switch');",
+              "assert.deepEqual(ids({ deepseek: true, backend: 'hip', gpus: [R9700] }), ['deepseek_speedups']);",
+              1,
+          )
+          s = s.replace(
+              "assert.deepEqual(ids({ deepseek: true, backend: 'cuda', gpus: [RTX] }), []);",
+              "assert.deepEqual(ids({ deepseek: true, backend: 'cuda', gpus: [RTX] }), ['deepseek_speedups']);",
+              1,
+          )
+          s = s.replace(
+              "assert.throws(() => validateNativeSettings({ env: { DS4_FAST_ATTN: '0' } }), undefined, 'the DeepSeek engine\\'s names are no longer shown or edited');",
+              "assert.deepEqual(validateNativeSettings({ env: { DS4_FAST_ATTN: '0' } }), { env: { DS4_FAST_ATTN: '0' } });",
+              1,
+          )
+          # Keep a direct behavioral test for the seven-entry compatibility switch.
+          marker = "test('the picture reader row is gone"
+          ds_test = """test('retained DeepSeek keeps its seven-entry speed compatibility switch', () => {
+  const ids = context => speedSwitchRows({}, context).map(r => r.id);
+  assert.deepEqual(ids({ deepseek: true, backend: 'cuda', gpus: [RTX] }), ['deepseek_speedups']);
+  const off = setSpeedSwitch({ DS4_ASYNC_T: '4' }, 'deepseek_speedups', false);
+  assert.equal(off.DS4_DEFAULTS, '026');
+  for (const k of SIX) assert.equal(off[k], '0');
+  assert.equal(speedSwitchIsOn(off, 'deepseek_speedups'), false);
+  assert.deepEqual(setSpeedSwitch(off, 'deepseek_speedups', true), { DS4_ASYNC_T: '4' });
+});
+
+"""
+          if ds_test not in s:
+              s = s.replace(marker, ds_test + marker, 1)
+          p.write_text(s, encoding="utf-8")
+
+          p = Path("tests/terminal/test_speed_switches.py")
+          s = p.read_text(encoding="utf-8")
+          env_anchor = '    "faster_radeon_9000": {"STRATA_PCIE_FRAC_DEFAULT": "old"},\n'
+          ds_env = '    "deepseek_speedups": {"DS4_DEFAULTS": "026", "DS4_FAST_ATTN": "0", "DS4_ATTN_SLAB": "0", "DS4_COPY_PIN": "0", "DS4_COPY_HUGETLB": "0", "DS4_STORE_SPARE": "0", "DS4_STORE_PUT": "0"},\n'
+          if ds_env not in s:
+              s = s.replace(env_anchor, env_anchor + ds_env, 1)
+          s = s.replace(
+              'DEFAULT = {"faster_long_prompts": "off", "faster_12gb_nvidia": "off", "faster_radeon_9000": "on", "qwen_defaults_026": "off"}',
+              'DEFAULT = {"faster_long_prompts": "off", "faster_12gb_nvidia": "off", "faster_radeon_9000": "on", "deepseek_speedups": "on", "qwen_defaults_026": "off"}',
+              1,
+          )
+          if 'SIX = ("DS4_FAST_ATTN"' not in s:
+              s = s.replace(
+                  'RTX3060 = ',
+                  'SIX = ("DS4_FAST_ATTN", "DS4_ATTN_SLAB", "DS4_COPY_PIN", "DS4_COPY_HUGETLB", "DS4_STORE_SPARE", "DS4_STORE_PUT")\nRTX3060 = ',
+                  1,
+              )
+          s = s.replace(
+              'self.assertEqual(ids(DEEPSEEK, [R9700]), [], "a DeepSeek config (no longer run): no switch")',
+              'self.assertEqual(ids(DEEPSEEK, [R9700]), ["deepseek_speedups"])',
+              1,
+          )
+          s = s.replace(
+              'self.assertEqual(ids({"exe": "C:/x/strata-dsv41.exe"}, [RTX]), [], "found by the engine\'s name too")',
+              'self.assertEqual(ids({"exe": "C:/x/strata-dsv41.exe"}, [RTX]), ["deepseek_speedups"], "found by the engine\'s name too")',
+              1,
+          )
+          s = s.replace(
+              'self.assertEqual(ids(DEEPSEEK, [RTX]), [])',
+              'self.assertEqual(ids(DEEPSEEK, [RTX]), ["deepseek_speedups"])',
+          )
+          p.write_text(s, encoding="utf-8")
+          PY
+          git add apps/host/tests/policy-generated.test.mjs                   apps/host/tests/speed-switches.test.mjs                   tests/terminal/test_speed_switches.py
+          git commit -m "continuity-adapter: keep DeepSeek policy tests while adopting the own-vision policy"
+
+      - name: Validate own-vision plus retained DSV41
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          bash lab/tools/probe.sh
+          sh -n packaging/build_hip_linux.sh
+          grep -Fq -- '-DSTRATA_BUILD_DSV41=ON' packaging/build_hip_linux.sh
+          grep -Fq 'strata-dsv41' packaging/build_hip_linux.sh
+          ! grep -Fq -- '-DLLAMA_DIR=' packaging/build_hip_linux.sh
+          ! grep -Fq 'Switch("picture_reader"' strata_control/speed_switches.py
+          grep -Fq 'Switch("deepseek_speedups"' strata_control/speed_switches.py
+          python3 -m strata_control.app_policy --check
+          python3 -m unittest tests.terminal.test_app_policy tests.terminal.test_speed_switches -v
+          npm --prefix apps/host ci --no-audit --no-fund
+          node --test apps/host/tests/policy-generated.test.mjs apps/host/tests/speed-switches.test.mjs
+          node --test apps/host/tests/native-ds-args.test.mjs apps/host/tests/load-pictures.test.mjs
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("apps/host/server/policy-generated.mjs").read_text(encoding="utf-8")
+          assert "deepseek_speedups" in p
+          assert "picture_reader" not in p
+          s = Path("apps/host/server/native-settings.mjs").read_text(encoding="utf-8")
+          assert "if(id==='deepseek_speedups')return !!deepseek;" in s
+          assert "id==='picture_reader'" not in s
+          d = Path("docs/DETAILS.md").read_text(encoding="utf-8")
+          assert "antirez/ds4" in d
+          print("event 0016 own-vision / retained-DeepSeek separation PASS")
+          PY
+
+      - name: Publish verified event 0016 checkpoint
+        if: steps.reproduce.outputs.rc == '10'
+        run: git push --force origin HEAD:continuity
+
+      - name: Fail if event shape changed
+        if: steps.reproduce.outputs.rc != '10'
+        run: |
+          echo "Expected event 0016 conflict rc=10, got ${{ steps.reproduce.outputs.rc }}"
+          exit 1
