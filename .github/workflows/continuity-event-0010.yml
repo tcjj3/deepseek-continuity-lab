@@ -1,0 +1,157 @@
+name: Continuity Resume Event 0010
+
+on:
+  push:
+    paths:
+      - ".github/workflows/continuity-event-0010.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  event0010:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout continuity checkpoint
+        uses: actions/checkout@v4
+        with:
+          ref: continuity
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "continuity-trial"
+          git config user.email "continuity-trial@invalid.local"
+
+      - name: Confirm event 0009 checkpoint
+        run: |
+          git log -50 --format=%B | grep -F "Upstream-Commit: 1f0ace2d1a759e336972e2306f07725eb9468a05"
+          bash lab/tools/probe.sh
+
+      - name: Replay two clean integrations after event 0009
+        run: python3 lab/tools/replay_upstream.py --max 2
+
+      - name: Reproduce event 0010
+        id: reproduce
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py --max 1 2>&1 | tee /tmp/event0010-reproduce.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Resolve event 0010 upstream-first at conflict hunk
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          test "$(git diff --name-only --diff-filter=U)" = "strata_cli/launch/runner.py"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("strata_cli/launch/runner.py")
+          lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+          a = next((i for i, x in enumerate(lines) if x.startswith("<<<<<<< HEAD")), None)
+          if a is None:
+              raise SystemExit("event 0010: no conflict marker")
+          b = next((i for i in range(a + 1, len(lines)) if lines[i].startswith("=======")), None)
+          z = next((i for i in range((b or a) + 1, len(lines)) if lines[i].startswith(">>>>>>>")), None)
+          if b is None or z is None:
+              raise SystemExit("event 0010: incomplete conflict markers")
+          ours = "".join(lines[a + 1:b])
+          theirs = "".join(lines[b + 1:z])
+          if "dsv41_engine_missing" not in ours:
+              raise SystemExit("event 0010: continuity side lost the DSV41 recovery invalidator")
+          if "_layer_fetch" not in theirs:
+              raise SystemExit("event 0010: upstream side is not the expected drafter safety-net invalidator")
+          lines[a:z + 1] = lines[b + 1:z]
+          p.write_text("".join(lines), encoding="utf-8")
+          PY
+          git add -A
+          git commit -m "launch: the start's safety net fetches the drafter it falls back to" \
+            -m "Upstream-Commit: 4d3e390b2fc8d24c846b973f6f28485b986600ba" \
+            -m "Continuity-Lab: deepseek-retained" \
+            -m "Continuity-Conflict-Resolution: upstream-first-at-conflict-hunk"
+
+      - name: Apply continuity adapter 0010
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("strata_cli/launch/runner.py")
+          s = p.read_text(encoding="utf-8")
+          anchor = '                and not getattr(self, "_layer_fetch", False):'
+          if s.count(anchor) != 1:
+              raise SystemExit(f"event 0010: expected one safety-net predicate line, got {s.count(anchor)}")
+          replacement = '                and not getattr(self, "_layer_fetch", False) and not self.dsv41_engine_missing(read_config(path)):'
+          s = s.replace(anchor, replacement, 1)
+          p.write_text(s, encoding="utf-8")
+          PY
+          git add strata_cli/launch/runner.py
+          git commit -m "continuity-adapter: compose DSV41 engine recovery with drafter safety-net recovery" \
+            -m "Adapter-For-Upstream: 4d3e390b2fc8d24c846b973f6f28485b986600ba" \
+            -m "Continuity-Classification: R3-shared-launch-state-drift" \
+            -m "Continuity-Shared-Invalidators: layer_back,_layer_fetch,dsv41_engine_missing"
+
+      - name: Validate event 0010
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          bash lab/tools/probe.sh
+          python3 - <<'PY'
+          import inspect
+          from strata_cli.launch.runner import Runner
+          src = inspect.getsource(Runner.ensure_model)
+          for needle in ("self.layer_back(path)", 'getattr(self, "_layer_fetch", False)', "self.dsv41_engine_missing(read_config(path))"):
+              assert needle in src, needle
+          print("event 0010 three-way launcher invalidator composition PASS")
+          PY
+          python3 -m unittest tests.snapshot.test_auto_drafter_fresh_install.StartSafetyNet -v
+          python3 -m unittest tests.terminal.test_dsv41_update_path.DeepSeekEngineUpdate.test_a_start_repairs_a_config_whose_folder_an_update_removed_and_touches_the_network_not_at_all -v
+          python3 -m unittest tests.terminal.test_dsv41_update_path.DeepSeekEngineUpdate.test_a_start_leaves_a_config_whose_engine_is_there_and_the_feed_unread -v
+
+      - name: Publish verified event 0010 checkpoint
+        if: steps.reproduce.outputs.rc == '10'
+        run: git push --force origin HEAD:continuity
+
+      - name: Continue until next failure
+        if: steps.reproduce.outputs.rc == '10'
+        id: continue
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py 2>&1 | tee /tmp/after-event0010.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Diagnose next failure
+        if: always() && steps.continue.outcome != 'skipped'
+        run: |
+          echo "---- replay rc ----"
+          echo "${{ steps.continue.outputs.rc }}"
+          echo "---- HEAD ----"
+          git log -1 --format=fuller || true
+          echo "---- status ----"
+          git status --short || true
+          echo "---- unmerged ----"
+          git diff --name-only --diff-filter=U || true
+          echo "---- index stages ----"
+          git ls-files -u || true
+          for f in $(git diff --name-only --diff-filter=U); do
+            echo "===== COMBINED DIFF: $f ====="
+            git diff --cc -- "$f" || true
+            echo "===== MARKERS: $f ====="
+            grep -n -B55 -A150 "<<<<<<<" "$f" || true
+          done
+          echo "---- last 600 lines ----"
+          tail -n 600 /tmp/after-event0010.log || true
+
+      - name: Mark next failure
+        if: steps.continue.outputs.rc != '' && steps.continue.outputs.rc != '0'
+        run: exit 1
+
+      - name: Fail if event 0010 shape changed
+        if: steps.reproduce.outputs.rc != '10'
+        run: |
+          echo "Expected event 0010 conflict rc=10, got ${{ steps.reproduce.outputs.rc }}"
+          exit 1
