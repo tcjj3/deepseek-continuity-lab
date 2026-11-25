@@ -156,7 +156,9 @@ jobs:
           p = Path("packaging/ENGINE-COMPONENT.md")
           lines = p.read_text(encoding="utf-8").splitlines()
           hits = [i for i, line in enumerate(lines)
-                  if line.startswith("|") and "linux-aarch64" in line and "NVIDIA DGX Spark" in line]
+                  if line.startswith("|") and "linux-aarch64" in line
+                  and "NVIDIA DGX Spark" in line
+                  and "sm_121" in line and "compute_121" in line]
           if len(hits) != 1:
               raise SystemExit(f"event 0015: Spark component row count {len(hits)}")
           i = hits[0]
