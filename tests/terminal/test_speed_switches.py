@@ -23,9 +23,11 @@ ENV = {      # what each switch writes outside its default
     "faster_long_prompts": {"STRATA_KVA": "1"},
     "faster_12gb_nvidia": {"STRATA_ROUTE_PRIOR": "1.5"},
     "faster_radeon_9000": {"STRATA_PCIE_FRAC_DEFAULT": "old"},
+    "deepseek_speedups": {"DS4_DEFAULTS": "026", "DS4_FAST_ATTN": "0", "DS4_ATTN_SLAB": "0", "DS4_COPY_PIN": "0", "DS4_COPY_HUGETLB": "0", "DS4_STORE_SPARE": "0", "DS4_STORE_PUT": "0"},
     "qwen_defaults_026": {"STRATA_DEFAULTS": "026"},         # the Terminal's troubleshooting switch: not in the app
 }
-DEFAULT = {"faster_long_prompts": "off", "faster_12gb_nvidia": "off", "faster_radeon_9000": "on", "qwen_defaults_026": "off"}
+DEFAULT = {"faster_long_prompts": "off", "faster_12gb_nvidia": "off", "faster_radeon_9000": "on", "deepseek_speedups": "on", "qwen_defaults_026": "off"}
+SIX = ("DS4_FAST_ATTN", "DS4_ATTN_SLAB", "DS4_COPY_PIN", "DS4_COPY_HUGETLB", "DS4_STORE_SPARE", "DS4_STORE_PUT")
 RTX3060 = {"name": "NVIDIA GeForce RTX 3060", "vendor": "nvidia", "arch": "86", "vram_gb": 12.0}
 RTX4070S = {"name": "NVIDIA GeForce RTX 4070 SUPER", "vendor": "nvidia", "arch": "89", "vram_gb": 12.0}
 RTX4060TI16 = {"name": "NVIDIA GeForce RTX 4060 Ti 16GB", "vendor": "nvidia", "arch": "89", "vram_gb": 16.0}

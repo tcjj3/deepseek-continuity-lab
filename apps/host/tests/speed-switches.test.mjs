@@ -15,10 +15,12 @@ const ENV = {      // what each switch writes outside its default
   faster_long_prompts: { STRATA_KVA: '1' },
   faster_12gb_nvidia: { STRATA_ROUTE_PRIOR: '1.5' },
   faster_radeon_9000: { STRATA_PCIE_FRAC_DEFAULT: 'old' },
+  deepseek_speedups: { DS4_DEFAULTS: '026', DS4_FAST_ATTN: '0', DS4_ATTN_SLAB: '0', DS4_COPY_PIN: '0', DS4_COPY_HUGETLB: '0', DS4_STORE_SPARE: '0', DS4_STORE_PUT: '0' },
 };
 /* (0.2.16: the picture reader row is gone with llama.cpp's reader, so every row is a Speed row.) */
 const speed = rows => rows;
-const DEFAULT = { faster_long_prompts: 'off', faster_12gb_nvidia: 'off', faster_radeon_9000: 'on' };
+const SIX = ['DS4_FAST_ATTN', 'DS4_ATTN_SLAB', 'DS4_COPY_PIN', 'DS4_COPY_HUGETLB', 'DS4_STORE_SPARE', 'DS4_STORE_PUT'];
+const DEFAULT = { faster_long_prompts: 'off', faster_12gb_nvidia: 'off', faster_radeon_9000: 'on', deepseek_speedups: 'on' };
 const RTX3060 = { index: 0, name: 'NVIDIA GeForce RTX 3060', vendor: 'nvidia', arch: '86', vram_gb: 12 };
 const R9700 = { index: 0, name: 'AMD Radeon AI PRO R9700', vendor: 'amd', arch: 'gfx1201', vram_gb: 32 };
 const RX7900 = { index: 0, name: 'AMD Radeon RX 7900 XTX', vendor: 'amd', arch: 'gfx1100', vram_gb: 24 };
@@ -154,6 +156,16 @@ test('Faster long prompts is for Qwen3.8-Flash-Next only: no row for Qwen3.6-35B
   assert.deepEqual(ids({ backend: 'hip', gpus: [RX7900], arch: 'qwen35moe' }), [], 'and on HIP');
   assert.deepEqual(ids({ backend: 'hip', gpus: [R9700], arch: 'qwen35moe' }), ['faster_radeon_9000'], 'the Radeon switch is not tied to the model\'s shape');
   assert.equal(speedSwitchApplies('faster_long_prompts', { backend: 'cuda', gpus: [RTX], arch: 'qwen35moe' }), false);
+});
+
+test('retained DeepSeek keeps its seven-entry speed compatibility switch', () => {
+  const ids = context => speedSwitchRows({}, context).map(r => r.id);
+  assert.deepEqual(ids({ deepseek: true, backend: 'cuda', gpus: [RTX] }), ['deepseek_speedups']);
+  const off = setSpeedSwitch({ DS4_ASYNC_T: '4' }, 'deepseek_speedups', false);
+  assert.equal(off.DS4_DEFAULTS, '026');
+  for (const k of SIX) assert.equal(off[k], '0');
+  assert.equal(speedSwitchIsOn(off, 'deepseek_speedups'), false);
+  assert.deepEqual(setSpeedSwitch(off, 'deepseek_speedups', true), { DS4_ASYNC_T: '4' });
 });
 
 test('the picture reader row is gone (0.2.16: Strata\'s own reader is the only one); the screen keeps its code for named options and field groups', () => {
