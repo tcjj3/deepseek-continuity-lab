@@ -45,6 +45,16 @@ echo
 echo "[syntax] Python runtime trees"
 python3 -m compileall -q serve strata_cli strata_control
 
+echo
+echo "[hip-dsv41] own-vision packaging invariants"
+bash -n packaging/build_hip_linux.sh
+grep -Fq -- '-DSTRATA_BUILD_DSV41=ON' packaging/build_hip_linux.sh
+grep -Fq 'strata-dsv41' packaging/build_hip_linux.sh
+if grep -Fq -- '-DLLAMA_DIR=' packaging/build_hip_linux.sh; then
+  echo "unexpected legacy LLAMA_DIR in HIP own-vision build" >&2
+  exit 23
+fi
+
 if [[ "$MODE" == "static" ]]; then
   echo "STATIC PASS"
   exit 0
