@@ -101,25 +101,26 @@ jobs:
           from unittest import mock
           from strata_cli.launch import settings as S
           from strata_cli.launch.runner import Runner
-          from tests.terminal.launch_support import HW_12, catalog
+          from tests.terminal.launch_support import HW_12, Home, catalog
 
-          # Retained DeepSeek path: Mac filtering must not drop its engine package.
-          ds = S.LaunchSettings(
-              family="deepseek41", model="UD-Q8_K_XL", context=8192,
-              vision="off", tune="skip", dsv41_package="/tmp/dsv41-package.zip"
-          )
-          with mock.patch("sys.platform", "darwin"):
-              args = Runner(ds, catalog=catalog(HW_12)).setup_args()
-          assert "--dsv41-package" in args, args
-          assert args[args.index("--dsv41-package") + 1] == "/tmp/dsv41-package.zip", args
+          with Home():
+              # Retained DeepSeek path: Mac filtering must not drop its engine package.
+              ds = S.LaunchSettings(
+                  family="deepseek41", model="UD-Q8_K_XL", context=8192,
+                  vision="off", tune="skip", dsv41_package="/tmp/dsv41-package.zip"
+              )
+              with mock.patch("sys.platform", "darwin"):
+                  args = Runner(ds, catalog=catalog(HW_12)).setup_args()
+              assert "--dsv41-package" in args, args
+              assert args[args.index("--dsv41-package") + 1] == "/tmp/dsv41-package.zip", args
 
-          # New upstream path: generic Mac setup may carry the selected drafter.
-          q = S.LaunchSettings(
-              family="qwen", model="IQ3_S", context=8192, vision="off", drafting="dflash2"
-          )
-          with mock.patch("sys.platform", "darwin"):
-              qargs = Runner(q, catalog=catalog(HW_12)).setup_args()
-          assert "--drafter" in qargs, qargs
+              # New upstream path: generic Mac setup may carry the selected drafter.
+              q = S.LaunchSettings(
+                  family="qwen", model="IQ3_S", context=8192, vision="off", drafting="dflash2"
+              )
+              with mock.patch("sys.platform", "darwin"):
+                  qargs = Runner(q, catalog=catalog(HW_12)).setup_args()
+              assert "--drafter" in qargs, qargs
           print("event 0009 Mac setup-interface union PASS")
           PY
           python3 -m unittest tests.snapshot.test_auto_drafter_fresh_install.MacSetupFetchesThePickedDrafter -v
