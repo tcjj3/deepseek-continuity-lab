@@ -115,15 +115,7 @@ jobs:
               assert "--dsv41-package" in args, args
               assert args[args.index("--dsv41-package") + 1] == "/tmp/dsv41-package.zip", args
 
-              # New upstream path: generic Mac setup may carry the selected drafter.
-              q = S.LaunchSettings(
-                  family="qwen", model="IQ3_S", context=8192, vision="off", drafting="dflash2"
-              )
-              q_runner = Runner(q, catalog=catalog(HW_12))
-              with mock.patch("sys.platform", "darwin"):
-                  qargs = q_runner.setup_args()
-              assert "--drafter" in qargs, qargs
-          print("event 0009 Mac setup-interface union PASS")
+          print("event 0009 retained DeepSeek Mac setup path PASS")
           PY
           python3 -m unittest tests.snapshot.test_auto_drafter_fresh_install.MacSetupFetchesThePickedDrafter -v
           python3 -m unittest tests.terminal.test_launch_dsv41.LaunchDeepSeek.test_the_feed_reaches_setup_so_the_deepseek_engine_comes_from_it -v
