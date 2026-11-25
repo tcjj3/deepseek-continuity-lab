@@ -109,8 +109,9 @@ jobs:
                   family="deepseek41", model="UD-Q8_K_XL", context=8192,
                   vision="off", tune="skip", dsv41_package="/tmp/dsv41-package.zip"
               )
+              ds_runner = Runner(ds, catalog=catalog(HW_12))
               with mock.patch("sys.platform", "darwin"):
-                  args = Runner(ds, catalog=catalog(HW_12)).setup_args()
+                  args = ds_runner.setup_args()
               assert "--dsv41-package" in args, args
               assert args[args.index("--dsv41-package") + 1] == "/tmp/dsv41-package.zip", args
 
@@ -118,8 +119,9 @@ jobs:
               q = S.LaunchSettings(
                   family="qwen", model="IQ3_S", context=8192, vision="off", drafting="dflash2"
               )
+              q_runner = Runner(q, catalog=catalog(HW_12))
               with mock.patch("sys.platform", "darwin"):
-                  qargs = Runner(q, catalog=catalog(HW_12)).setup_args()
+                  qargs = q_runner.setup_args()
               assert "--drafter" in qargs, qargs
           print("event 0009 Mac setup-interface union PASS")
           PY
