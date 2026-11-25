@@ -106,8 +106,8 @@ jobs:
           print("event 0010 three-way launcher invalidator composition PASS")
           PY
           python3 -m unittest tests.snapshot.test_auto_drafter_fresh_install.StartSafetyNet -v
-          python3 -m unittest tests.terminal.test_dsv41_update_path.DeepSeekEngineUpdate.test_a_start_repairs_a_config_whose_folder_an_update_removed_and_touches_the_network_not_at_all -v
-          python3 -m unittest tests.terminal.test_dsv41_update_path.DeepSeekEngineUpdate.test_a_start_leaves_a_config_whose_engine_is_there_and_the_feed_unread -v
+          python3 -m unittest tests.terminal.test_dsv41_update_path.UpdatePath.test_a_start_repairs_a_config_whose_folder_an_update_removed_and_touches_the_network_not_at_all -v
+          python3 -m unittest tests.terminal.test_dsv41_update_path.UpdatePath.test_a_start_leaves_a_config_whose_engine_is_there_and_the_feed_unread -v
 
       - name: Publish verified event 0010 checkpoint
         if: steps.reproduce.outputs.rc == '10'
