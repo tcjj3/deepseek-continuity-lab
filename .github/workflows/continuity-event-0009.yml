@@ -1,0 +1,173 @@
+name: Continuity Resume Event 0009
+
+on:
+  push:
+    paths:
+      - ".github/workflows/continuity-event-0009.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  event0009:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout continuity checkpoint
+        uses: actions/checkout@v4
+        with:
+          ref: continuity
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "continuity-trial"
+          git config user.email "continuity-trial@invalid.local"
+
+      - name: Confirm event 0008 checkpoint
+        run: |
+          git log -40 --format=%B | grep -F "Upstream-Commit: 7f5b34d1d2a28c47ce6e479576a1459a96063650"
+          bash lab/tools/probe.sh
+
+      - name: Replay eight clean integrations after event 0008
+        run: python3 lab/tools/replay_upstream.py --max 8
+
+      - name: Reproduce event 0009
+        id: reproduce
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py --max 1 2>&1 | tee /tmp/event0009-reproduce.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Resolve event 0009 upstream-first at conflict hunk
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          test "$(git diff --name-only --diff-filter=U)" = "strata_cli/launch/runner.py"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("strata_cli/launch/runner.py")
+          lines = p.read_text(encoding="utf-8").splitlines(keepends=True)
+          a = next((i for i, x in enumerate(lines) if x.startswith("<<<<<<< HEAD")), None)
+          if a is None:
+              raise SystemExit("event 0009: no conflict marker")
+          b = next((i for i in range(a + 1, len(lines)) if lines[i].startswith("=======")), None)
+          z = next((i for i in range((b or a) + 1, len(lines)) if lines[i].startswith(">>>>>>>")), None)
+          if b is None or z is None:
+              raise SystemExit("event 0009: incomplete conflict markers")
+          ours = "".join(lines[a + 1:b])
+          theirs = "".join(lines[b + 1:z])
+          if "--dsv41-package" not in ours:
+              raise SystemExit("event 0009: continuity side lost --dsv41-package")
+          if "--drafter" not in theirs:
+              raise SystemExit("event 0009: upstream side is not the expected Mac drafter change")
+          lines[a:z + 1] = lines[b + 1:z]
+          p.write_text("".join(lines), encoding="utf-8")
+          PY
+          git add -A
+          git commit -m "drafting: one drafter per install, never none unless Off was chosen" \
+            -m "Upstream-Commit: 1f0ace2d1a759e336972e2306f07725eb9468a05" \
+            -m "Continuity-Lab: deepseek-retained" \
+            -m "Continuity-Conflict-Resolution: upstream-first-at-conflict-hunk"
+
+      - name: Apply continuity adapter 0009
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("strata_cli/launch/runner.py")
+          s = p.read_text(encoding="utf-8")
+          anchor = '"--set-default-data-dir", "--feed", "--drafter"}'
+          if s.count(anchor) != 1:
+              raise SystemExit(f"event 0009: expected one Mac keep-set anchor, got {s.count(anchor)}")
+          s = s.replace(anchor, '"--set-default-data-dir", "--feed", "--drafter", "--dsv41-package"}', 1)
+          p.write_text(s, encoding="utf-8")
+          PY
+          git add strata_cli/launch/runner.py
+          git commit -m "continuity-adapter: keep DeepSeek package selection in the Mac setup interface" \
+            -m "Adapter-For-Upstream: 1f0ace2d1a759e336972e2306f07725eb9468a05" \
+            -m "Continuity-Classification: R3-shared-setup-interface-drift" \
+            -m "Continuity-Logical-Updates: 1"
+
+      - name: Validate event 0009
+        if: steps.reproduce.outputs.rc == '10'
+        run: |
+          bash lab/tools/probe.sh
+          python3 -m pip install -q textual
+          python3 - <<'PY'
+          from unittest import mock
+          from strata_cli.launch import settings as S
+          from strata_cli.launch.runner import Runner
+          from tests.terminal.launch_support import HW_12, catalog
+
+          # Retained DeepSeek path: Mac filtering must not drop its engine package.
+          ds = S.LaunchSettings(
+              family="deepseek41", model="UD-Q8_K_XL", context=8192,
+              vision="off", tune="skip", dsv41_package="/tmp/dsv41-package.zip"
+          )
+          with mock.patch("sys.platform", "darwin"):
+              args = Runner(ds, catalog=catalog(HW_12)).setup_args()
+          assert "--dsv41-package" in args, args
+          assert args[args.index("--dsv41-package") + 1] == "/tmp/dsv41-package.zip", args
+
+          # New upstream path: generic Mac setup may carry the selected drafter.
+          q = S.LaunchSettings(
+              family="qwen", model="IQ3_S", context=8192, vision="off", drafting="dflash2"
+          )
+          with mock.patch("sys.platform", "darwin"):
+              qargs = Runner(q, catalog=catalog(HW_12)).setup_args()
+          assert "--drafter" in qargs, qargs
+          print("event 0009 Mac setup-interface union PASS")
+          PY
+          python3 -m unittest tests.snapshot.test_auto_drafter_fresh_install.MacSetupFetchesThePickedDrafter -v
+          python3 -m unittest tests.terminal.test_launch_dsv41.LaunchDeepSeek.test_the_feed_reaches_setup_so_the_deepseek_engine_comes_from_it -v
+
+      - name: Publish verified event 0009 checkpoint
+        if: steps.reproduce.outputs.rc == '10'
+        run: git push --force origin HEAD:continuity
+
+      - name: Continue until next failure
+        if: steps.reproduce.outputs.rc == '10'
+        id: continue
+        shell: bash
+        run: |
+          set +e
+          python3 lab/tools/replay_upstream.py 2>&1 | tee /tmp/after-event0009.log
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Diagnose next failure
+        if: always() && steps.continue.outcome != 'skipped'
+        run: |
+          echo "---- replay rc ----"
+          echo "${{ steps.continue.outputs.rc }}"
+          echo "---- HEAD ----"
+          git log -1 --format=fuller || true
+          echo "---- status ----"
+          git status --short || true
+          echo "---- unmerged ----"
+          git diff --name-only --diff-filter=U || true
+          echo "---- index stages ----"
+          git ls-files -u || true
+          for f in $(git diff --name-only --diff-filter=U); do
+            echo "===== COMBINED DIFF: $f ====="
+            git diff --cc -- "$f" || true
+            echo "===== MARKERS: $f ====="
+            grep -n -B50 -A130 "<<<<<<<" "$f" || true
+          done
+          echo "---- last 550 lines ----"
+          tail -n 550 /tmp/after-event0009.log || true
+
+      - name: Mark next failure
+        if: steps.continue.outputs.rc != '' && steps.continue.outputs.rc != '0'
+        run: exit 1
+
+      - name: Fail if event 0009 shape changed
+        if: steps.reproduce.outputs.rc != '10'
+        run: |
+          echo "Expected event 0009 conflict rc=10, got ${{ steps.reproduce.outputs.rc }}"
+          exit 1
