@@ -2658,6 +2658,7 @@ class Runner:
 
     def plan(self) -> dict:
         s = self.s
+        self.keep_saved_off()                                # the plan names the drafter the start will run
         self.check_own_files()
         warns = [n.line() for n in (*S.check_access(s),)]
         warns += self.preflight_words()
