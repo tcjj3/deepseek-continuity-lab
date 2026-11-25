@@ -88,6 +88,25 @@ jobs:
           p = Path("apps/host/server/native-control.mjs")
           s = p.read_text(encoding="utf-8")
 
+          # Upstream has the same withoutVisionFlag helper locally; continuity
+          # already extracted the byte-for-byte equivalent helper to native-ds-args.mjs
+          # and imports it here. Keep one shared implementation.
+          duplicate = """
+/** `args` without `--vision` and the picture word that follows it (the Qwen engine's --vision stands alone; an older config may carry a value). */
+const PICTURE_WORDS = new Set(['on', 'off', 'yes', 'no', 'gpu', 'cpu', 'none']);
+function withoutVisionFlag(args) {
+  const list = (Array.isArray(args) ? args : []).map(String), out = [];
+  for (let i = 0; i < list.length; i++) {
+    if (list[i] === '--vision') { if (i + 1 < list.length && PICTURE_WORDS.has(list[i + 1].toLowerCase())) i++; continue; }
+    out.push(list[i]);
+  }
+  return out;
+}
+"""
+          if s.count(duplicate) != 1:
+              raise SystemExit(f"event 0013: expected one duplicate local withoutVisionFlag, got {s.count(duplicate)}")
+          s = s.replace(duplicate, "\n", 1)
+
           # DeepSeek picture capability is part of its own pack; no explicit app
           # choice must not become the generic install default vision:no.
           generic = "...(packaged&&args.vision===undefined?{vision:'no'}:{}),confirm"
