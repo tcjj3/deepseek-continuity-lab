@@ -101,38 +101,41 @@ jobs:
           anchor = '    # (0.2.16: the "Picture reader" row'
           if s.count(anchor) != 1:
               raise SystemExit("speed-switch insertion anchor changed")
-          ds = '''    Switch("deepseek_speedups", "DeepSeek speed-ups",
-           "Reads long prompts faster and loads the parts of the model it needs faster. "
-           "Turn off if DeepSeek stops working or its answers look wrong; it then runs as in version 0.2.6.",
-           (("DS4_DEFAULTS", "026"), ("DS4_FAST_ATTN", "0"), ("DS4_ATTN_SLAB", "0"), ("DS4_COPY_PIN", "0"), ("DS4_COPY_HUGETLB", "0"),
-            ("DS4_STORE_SPARE", "0"), ("DS4_STORE_PUT", "0")), "deepseek",
-           legacy=(("DS4_FAST_ATTN", "0"), ("DS4_ATTN_SLAB", "0"), ("DS4_COPY_PIN", "0"), ("DS4_COPY_HUGETLB", "0"),
-                   ("DS4_STORE_SPARE", "0"), ("DS4_STORE_PUT", "0"))),
-'''
+          ds = (
+              '    Switch("deepseek_speedups", "DeepSeek speed-ups",\n'
+              '           "Reads long prompts faster and loads the parts of the model it needs faster. "\n'
+              '           "Turn off if DeepSeek stops working or its answers look wrong; it then runs as in version 0.2.6.",\n'
+              '           (("DS4_DEFAULTS", "026"), ("DS4_FAST_ATTN", "0"), ("DS4_ATTN_SLAB", "0"), ("DS4_COPY_PIN", "0"), ("DS4_COPY_HUGETLB", "0"),\n'
+              '            ("DS4_STORE_SPARE", "0"), ("DS4_STORE_PUT", "0")), "deepseek",\n'
+              '           legacy=(("DS4_FAST_ATTN", "0"), ("DS4_ATTN_SLAB", "0"), ("DS4_COPY_PIN", "0"), ("DS4_COPY_HUGETLB", "0"),\n'
+              '                   ("DS4_STORE_SPARE", "0"), ("DS4_STORE_PUT", "0"))),\n'
+          )
           if 'Switch("deepseek_speedups"' not in s:
               s = s.replace(anchor, ds + anchor, 1)
 
           anchor = 'def _radeon_9000('
-          helper = '''def is_deepseek(cfg: Mapping[str, Any] | None) -> bool:
-    cfg = cfg or {}
-    return cfg.get("arch") == "deepseek41" or bool(re.search(r"strata-dsv41", str(cfg.get("exe") or ""), re.IGNORECASE))
-
-
-'''
+          helper = (
+              'def is_deepseek(cfg: Mapping[str, Any] | None) -> bool:\n'
+              '    cfg = cfg or {}\n'
+              '    return cfg.get("arch") == "deepseek41" or bool(re.search(r"strata-dsv41", str(cfg.get("exe") or ""), re.IGNORECASE))\n'
+              '\n\n'
+          )
           if "def is_deepseek(" not in s:
               s = s.replace(anchor, helper + anchor, 1)
 
-          old = '''    from strata_control import retired
-    if retired.config_reason(cfg):                   # a DeepSeek config (strata_control/retired.py): this Strata does not run it
-        return False
-    if sw.only == "qwen-any":
-'''
-          new = '''    if sw.only == "deepseek":
-        return is_deepseek(cfg)
-    if is_deepseek(cfg):
-        return False
-    if sw.only == "qwen-any":
-'''
+          old = (
+              '    from strata_control import retired\n'
+              '    if retired.config_reason(cfg):                   # a DeepSeek config (strata_control/retired.py): this Strata does not run it\n'
+              '        return False\n'
+              '    if sw.only == "qwen-any":\n'
+          )
+          new = (
+              '    if sw.only == "deepseek":\n'
+              '        return is_deepseek(cfg)\n'
+              '    if is_deepseek(cfg):\n'
+              '        return False\n'
+              '    if sw.only == "qwen-any":\n'
+          )
           if old not in s:
               raise SystemExit("upstream retired-policy block changed")
           s = s.replace(old, new, 1)
@@ -222,17 +225,17 @@ jobs:
           )
           # Keep a direct behavioral test for the seven-entry compatibility switch.
           marker = "test('the picture reader row is gone"
-          ds_test = """test('retained DeepSeek keeps its seven-entry speed compatibility switch', () => {
-  const ids = context => speedSwitchRows({}, context).map(r => r.id);
-  assert.deepEqual(ids({ deepseek: true, backend: 'cuda', gpus: [RTX] }), ['deepseek_speedups']);
-  const off = setSpeedSwitch({ DS4_ASYNC_T: '4' }, 'deepseek_speedups', false);
-  assert.equal(off.DS4_DEFAULTS, '026');
-  for (const k of SIX) assert.equal(off[k], '0');
-  assert.equal(speedSwitchIsOn(off, 'deepseek_speedups'), false);
-  assert.deepEqual(setSpeedSwitch(off, 'deepseek_speedups', true), { DS4_ASYNC_T: '4' });
-});
-
-"""
+          ds_test = (
+              "test('retained DeepSeek keeps its seven-entry speed compatibility switch', () => {\n"
+              "  const ids = context => speedSwitchRows({}, context).map(r => r.id);\n"
+              "  assert.deepEqual(ids({ deepseek: true, backend: 'cuda', gpus: [RTX] }), ['deepseek_speedups']);\n"
+              "  const off = setSpeedSwitch({ DS4_ASYNC_T: '4' }, 'deepseek_speedups', false);\n"
+              "  assert.equal(off.DS4_DEFAULTS, '026');\n"
+              "  for (const k of SIX) assert.equal(off[k], '0');\n"
+              "  assert.equal(speedSwitchIsOn(off, 'deepseek_speedups'), false);\n"
+              "  assert.deepEqual(setSpeedSwitch(off, 'deepseek_speedups', true), { DS4_ASYNC_T: '4' });\n"
+              "});\n\n"
+          )
           if ds_test not in s:
               s = s.replace(marker, ds_test + marker, 1)
           p.write_text(s, encoding="utf-8")
