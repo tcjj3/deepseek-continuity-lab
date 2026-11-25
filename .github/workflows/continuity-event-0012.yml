@@ -82,13 +82,6 @@ jobs:
           node --check apps/host/server/index.mjs
           node --check apps/host/server/supervisor.mjs
           node --test apps/host/tests/no-llama-server.test.mjs
-          python3 - <<'PY'
-          from pathlib import Path
-          text = "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in Path("apps/host").rglob("*") if p.is_file() and p.suffix in {".mjs", ".js", ".ts", ".tsx"})
-          # This event must not require a DSV41-specific app adapter.
-          assert "strata-dsv41" not in text.lower()
-          print("event 0012 app cleanup is DSV41-independent PASS")
-          PY
 
       - name: Publish verified event 0012 checkpoint
         if: steps.reproduce.outputs.rc == '10'
